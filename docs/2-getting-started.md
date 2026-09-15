@@ -19,6 +19,7 @@ In your Dynatrace tenant, [create a platform token](https://docs.dynatrace.com/d
 - storage:metrics:write
 - openpipeline:metrics:ingest
 
+
 Save the token for now; you won't be able to see it again once you leave the token creation dialog.
 
 ## 3. Development Environment
