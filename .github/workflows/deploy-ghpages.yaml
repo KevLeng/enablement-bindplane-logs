@@ -1,14 +1,16 @@
 name: deploy mkdocs to github pages
 run-name: ${{ github.event.head_commit.message }}  - deploy github pages
 permissions:
-  contents: write
+  contents: read
+  pages: write
+  id-token: write
 on:
   push:
     branches:
       - main
       - docs/*
 jobs:
-  deploy-github-pages:
+  build:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -24,12 +26,21 @@ jobs:
         curl -fsSL "https://raw.githubusercontent.com/dynatrace-wwse/codespaces-framework/${FRAMEWORK_VERSION}/mkdocs-base.yaml" -o mkdocs-base.yaml
         mkdir -p docs/stylesheets
         curl -fsSL "https://raw.githubusercontent.com/dynatrace-wwse/codespaces-framework/${FRAMEWORK_VERSION}/docs/stylesheets/extra.css" -o docs/stylesheets/extra.css
-    - name: MKDocs - install requirements, build, gh-deploy
+    - name: MKDocs - install requirements and build
       run: |
         pip install --break-system-packages -r docs/requirements/requirements-mkdocs.txt
-        git fetch origin gh-pages:gh-pages 2>/dev/null || true
         mkdocs build
-        mkdocs gh-deploy --force
-
-
-        
+    - name: Upload Pages artifact
+      uses: actions/upload-pages-artifact@v3
+      with:
+        path: site/
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4
