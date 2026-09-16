@@ -5,7 +5,29 @@
       "Bash(python3 /workspaces/enablement-bindplane-logs/.devcontainer/util/generate_logs.py --logdir /var/log/bpsystem --scenario leak_bch_key --scenario-after 20 --scenario-repeat 50 --interval 0.5 --count 1)",
       "Bash(gh api *)",
       "WebFetch(domain:github.com)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(gh run *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" https://dt-arr.github.io/enablement-bindplane-logs/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" https://dt-arr.github.io/enablement-bindplane-logs/2-getting-started/)",
+      "Bash(curl -s https://dt-arr.github.io/enablement-bindplane-logs/sitemap.xml)",
+      "Bash(curl -s https://dt-arr.github.io/enablement-bindplane-logs/)",
+      "Bash(curl -s \"https://api.github.com/repos/dt-arr/enablement-bindplane-logs/actions/runs?per_page=8\")",
+      "Bash(python -c ' *)",
+      "Bash(curl -s \"https://api.github.com/repos/dt-arr/enablement-bindplane-logs/pages\")",
+      "Bash(curl -s \"https://api.github.com/repos/dt-arr/enablement-bindplane-logs/actions/workflows\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" \"https://raw.githubusercontent.com/dt-arr/enablement-bindplane-logs/main/.github/workflows/deploy-ghpages.yaml\")",
+      "Bash(curl -s \"https://api.github.com/repos/dt-arr/enablement-bindplane-logs/actions/workflows/deploy-ghpages.yaml/runs?per_page=10\")",
+      "Bash(curl -s \"https://raw.githubusercontent.com/dt-arr/enablement-bindplane-logs/main/.github/workflows/deploy-ghpages.yaml\")",
+      "Bash(curl -s \"https://api.github.com/repos/dt-arr/enablement-bindplane-logs\")",
+      "Bash(curl -s \"https://api.github.com/repos/dt-arr/enablement-bindplane-logs/actions/runs?per_page=1\")",
+      "Bash(curl -s -o /dev/null -w \"index.md raw: %{http_code}\\\\n\" https://dt-arr.github.io/enablement-bindplane-logs/index.md)",
+      "Bash(curl -s -o /dev/null -w \"resources: %{http_code}\\\\n\" https://dt-arr.github.io/enablement-bindplane-logs/resources.html)",
+      "Bash(curl -s -o /dev/null -w \"img/hero.png: %{http_code}\\\\n\" https://dt-arr.github.io/enablement-bindplane-logs/img/hero.png)",
+      "Bash(curl -s \"https://api.github.com/repos/dt-arr/enablement-bindplane-logs/actions/runs?per_page=10\")",
+      "Bash(curl -s \"https://api.github.com/repos/dt-arr/enablement-bindplane-logs/commits?per_page=3\")",
+      "Bash(curl -s \"https://api.github.com/repos/dt-arr/enablement-bindplane-logs/deployments?per_page=5\")",
+      "Bash(curl -s \"https://api.github.com/repos/dt-arr/enablement-bindplane-logs/deployments?per_page=2\")",
+      "Bash(curl -s \"https://api.github.com/repos/dt-arr/enablement-bindplane-logs/actions/runs?per_page=100\")"
     ]
   }
 }
