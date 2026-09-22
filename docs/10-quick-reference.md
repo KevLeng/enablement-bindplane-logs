@@ -134,13 +134,13 @@ These four run on the Syslog source and are covered in full on their own pages. 
 
 | Order | Bindplane processor | Purpose | Page |
 |---|---|---|---|
-| 1 | **Parse CSV** | CSV to named `pan.*` attributes | [details](pipeline-field-extraction.md) |
+| 1 | **Parse CSV** | CSV to named `pan.*` fields, 38-column header | [details](pipeline-field-extraction.md) |
 | 2 | **Sampling** | Drop 90% of allows, keep all denies. 84% measured | [details](pipeline-volume-reduction.md) |
 | 3 | **Severity** | allow INFO, deny/drop WARN, reset-both ERROR | [details](pipeline-severity-enrichment.md) |
 | 4 | **Add Fields** x2 | `network-operational` vs `security-events` | [details](pipeline-security-context.md) |
 
 !!! danger "Two settings that will bite you"
-    Parse `attributes.message`, not `body`. The Syslog source puts the raw line including the `<134>...` prefix in `body` and the CSV alone in `attributes.message`, so parsing `body` shifts every field by one and fails silently. And always set the Condition, or the JSON records from Citrix and NSG on the same port will flood the log with CSV parse errors.
+    Source Field Type is **Body**, Source Field is `message`. The Bindplane Syslog source moves `appname`, `message` and `hostname` out of attributes into the body, so a processor pointed at attributes finds nothing. And always set the Condition, or the JSON records from Citrix and NSG on the same port will flood the log with CSV parse errors.
 
 ### 8. Monitor collector health &mdash; [details](9-bindplane-health.md)
 

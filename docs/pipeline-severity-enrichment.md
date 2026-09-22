@@ -28,7 +28,7 @@ Add a processor and search for **Severity**. Then set:
 **Parse From**
 
 ```
-attributes.pan.action
+body.pan.action
 ```
 
 **Overwrite Text**: on.
@@ -41,11 +41,12 @@ attributes.pan.action
 | `warn` | `deny`, `drop` |
 | `error` | `reset-both` |
 
-**Condition**
+**Condition**: two rows joined with AND, both matching on **Body**.
 
-```
-attributes.appname == "PAN-OS" and attributes.message contains ",TRAFFIC,end,"
-```
+| Match | Field | Operator | String |
+|---|---|---|---|
+| Body | `appname` | Equals | `PAN-OS` |
+| Body | `message` | Contains | `,TRAFFIC,end,` |
 
 !!! tip "Turn Overwrite Text on"
     Without it the processor sets the severity *number* correctly but leaves the severity *text* as the raw action value, so the log viewer shows `reset-both` where you expect `ERROR`. Tested both ways: with Overwrite Text off you get `severityText=deny, severityNumber=13`. With it on you get `severityText=WARN, severityNumber=13`. Dynatrace derives its log level from the number either way, but the text is what a human reads.
@@ -56,8 +57,8 @@ attributes.appname == "PAN-OS" and attributes.message contains ",TRAFFIC,end,"
 logstransform/panos_severity:
   operators:
     - type: severity_parser
-      if: 'attributes.appname == "PAN-OS" and attributes.message contains ",TRAFFIC,end,"'
-      parse_from: attributes.pan.action
+      if: 'body.appname == "PAN-OS" and body.message contains ",TRAFFIC,end,"'
+      parse_from: body.pan.action
       overwrite_text: true
       mapping:
         info: allow

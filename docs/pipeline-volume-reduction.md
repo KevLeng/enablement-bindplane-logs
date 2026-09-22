@@ -17,7 +17,7 @@ Add a processor and search for **Sampling**. Two settings.
 **Condition**
 
 ```
-attributes["pan"]["action"] == "allow"
+body["pan"]["action"] == "allow"
 ```
 
 **Drop Ratio**: `0.9`
@@ -35,7 +35,7 @@ That is the whole configuration. The processor drops 90 percent of the records t
 ```yaml
 sampling/panos_allow:
   drop_ratio: 0.9
-  condition: attributes["pan"]["action"] == "allow"
+  condition: body["pan"]["action"] == "allow"
 ```
 
 ## Measured result

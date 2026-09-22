@@ -27,7 +27,7 @@ Reads `pan.action`, so place it **after** Parse CSV. This needs two **Add Fields
 |---|---|
 | Field name | `dt.security_context` |
 | Field value | `network-operational` |
-| Condition | `attributes["pan"]["action"] == "allow"` |
+| Condition | `body["pan"]["action"] == "allow"` |
 
 **Processor 2, security events**
 
@@ -35,7 +35,7 @@ Reads `pan.action`, so place it **after** Parse CSV. This needs two **Add Fields
 |---|---|
 | Field name | `dt.security_context` |
 | Field value | `security-events` |
-| Condition | `attributes["pan"]["action"] != "allow" and attributes["pan"]["action"] != nil` |
+| Condition | `body["pan"]["action"] != "allow" and body["pan"]["action"] != nil` |
 
 The second condition tests for "not allow" rather than listing the three denied actions. That way a PAN-OS action this lab does not generate still gets classified as a security event rather than silently falling through. The `!= nil` guard stops non-PAN-OS records on the same source from being tagged.
 
