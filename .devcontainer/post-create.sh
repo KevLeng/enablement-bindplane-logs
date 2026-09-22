@@ -37,7 +37,9 @@ setUpTerminal
 # production host rather than a sandbox directory. Pre-create the files it
 # appends to and hand those to $USER; /var/log itself stays root-owned, as it
 # is on a real host.
-for logfile in syslog auth.log kern.log cron.log; do
+sudo mkdir -p /var/log/audit
+sudo chown "$(id -un)":"$(id -gn)" /var/log/audit
+for logfile in syslog auth.log kern.log cron.log fail2ban.log audit/audit.log; do
 	sudo touch "/var/log/$logfile"
 	sudo chown "$(id -un)":"$(id -gn)" "/var/log/$logfile"
 done

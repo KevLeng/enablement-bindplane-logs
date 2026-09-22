@@ -14,6 +14,7 @@ nav:
   - "7. Masking Data & Routing": 7-masking-routing.md
   - "8. Extracting Metrics from Logs": 8-metric-extraction.md
   - "9. Bindplane Health": 9-bindplane-health.md
+  - "10. Quick Reference": 10-quick-reference.md
 
 extra:
   rum_snippet: "https://js-cdn.dynatrace.com/jstag/1612cf70810/bf81393wlb/7c50bce5c0cc890f_complete.js"

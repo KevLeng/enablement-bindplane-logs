@@ -24,7 +24,9 @@ if [ ! -d "$logdir" ]; then
 fi
 # id -un rather than $USER: $USER is unset in a non-login shell, which silently
 # turns the chown into a no-op and leaves the files unwritable.
-for logfile in syslog auth.log kern.log cron.log; do
+sudo mkdir -p "$logdir/audit"
+sudo chown "$(id -un)":"$(id -gn)" "$logdir/audit"
+for logfile in syslog auth.log kern.log cron.log fail2ban.log audit/audit.log; do
   if [ ! -w "$logdir/$logfile" ]; then
     sudo touch "$logdir/$logfile"
     sudo chown "$(id -un)":"$(id -gn)" "$logdir/$logfile"
@@ -33,7 +35,7 @@ done
 
 nohup python3 .devcontainer/util/generate_logs.py \
   --logdir "$logdir" \
-  --scenario leak_bch_key \
+  --scenario leak_bch_key,brute_force,recon,data_exfil \
   --scenario-after 20 \
   --scenario-repeat 50 \
   --interval 0.5 \

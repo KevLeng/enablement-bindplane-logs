@@ -64,8 +64,10 @@ This host writes its logs to the standard Linux log paths under `/var/log`, exac
 ```
 > cd /var/log
 > ls
-auth.log  cron.log  kern.log  syslog
+audit  auth.log  cron.log  fail2ban.log  kern.log  syslog
 ```
+
+Note that not every log on a Linux host is syslog. `fail2ban.log` is written by fail2ban itself through Python logging, and `audit/audit.log` is written by `auditd` -- neither has a syslog header, and each needs its own parser. You will collect those as separate File sources later.
 
 Let's take a look at the logs being written to syslog by tailing the syslog file
 ```

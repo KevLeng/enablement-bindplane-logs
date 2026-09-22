@@ -1,6 +1,15 @@
-# These files are executed inside the Linux Dev Container. A CRLF shebang
-# ("#!/bin/bash\r") makes the kernel look for an interpreter named "bash\r"
-# and fail with "not found", so keep them LF regardless of core.autocrlf.
-*.sh      text eol=lf
-*.py      text eol=lf
-Makefile  text eol=lf
+# Everything executed or read inside the Linux Dev Container stays LF, whatever
+# core.autocrlf says on the developer's machine. A CRLF shebang ("#!/bin/bash\r")
+# makes the kernel look for an interpreter named "bash\r" and fail with
+# "not found" -- which is exactly how this bit the lab on Windows.
+* text=auto eol=lf
+
+# Binary assets git should never touch.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff  binary
+*.woff2 binary
