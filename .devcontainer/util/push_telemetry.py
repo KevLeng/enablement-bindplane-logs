@@ -69,7 +69,7 @@ USERS = ["jsmith", "dnguyen", "rpatel", "mokafor", "lchen", "aivanov", "tmurphy"
          "skoval", "bwilliams", "hnakamura", "gsantos", "kobrien", "pdesai"]
 VDA = [f"AU-VDA-{i:03d}" for i in range(1, 25)]
 AVD = [f"avd-pool1-{i}" for i in range(16)]
-FW = ["AU-SYD-EDGE-01", "AU-SYD-EDGE-02", "AU-MEL-DC-01"]
+FW = ["AU-SYD-EDGE-01", "AU-SYD-EDGE-02", "AU-MEL-DC-01", "AU-MEL-DC-02"]
 APPS = [("ssl", 443), ("web-browsing", 80), ("ms-rdp", 3389), ("citrix", 1494),
         ("citrix-cgp", 2598), ("dns", 53), ("ldap", 389), ("kerberos", 88),
         ("ms-sql-db", 1433), ("smb", 445), ("ntp", 123), ("snmp", 161)]
@@ -109,6 +109,8 @@ def ev_panos_traffic(ts):
     action = random.choice(["deny", "drop", "reset-both"]) if deny else "allow"
     sent = 0 if deny else random.randint(200, 900_000)
     recv = 0 if deny else random.randint(200, 4_000_000)
+    # A denied session is torn down before data flows, so it carries no packets.
+    pkts = 0 if deny else random.randint(4, 12_000)
     el = 0 if deny else random.randint(1, 3600)
     t = datetime.fromtimestamp(ts, timezone.utc).strftime("%Y/%m/%d %H:%M:%S")
     host = random.choice(FW)
@@ -120,10 +122,14 @@ def ev_panos_traffic(ts):
         "log-forwarding-default", "", str(random.randint(100000, 999999)), "1",
         str(random.randint(1024, 65535)), str(dport), "0", "0", "0x400053",
         random.choice(["tcp", "tcp", "tcp", "udp"]), action,
-        str(sent + recv), str(sent), str(recv), str(el),
+        str(sent + recv), str(sent), str(recv), str(pkts), str(el),
         "policy-deny" if deny else random.choice(["aged-out", "tcp-fin", "tcp-rst-from-client"]),
     ])
-    return "local0", ("warning" if deny else "info"), "PAN-OS", host, msg
+    # PAN-OS forwards every TRAFFIC log at informational severity, whatever the
+    # action was. Only THREAT logs carry a varying severity. That is why the
+    # severity-enrichment lab has something to fix: the syslog priority on a
+    # denied session says "info", and only the action field tells the truth.
+    return "local0", "info", "PAN-OS", host, msg
 
 
 def ev_panos_threat(ts):

@@ -30,32 +30,42 @@ During this hands-on training, you will install and configure Bindplane to colle
    - Confirm the agent appears in the Bindplane UI
 
 3. **Create a Bindplane Configuration**
-   - Define a File source pointed at the host's syslog
+   - Define sources for the host log files and the PAN-OS syslog stream
    - Configure a Dynatrace destination using your environment ID and token
-   - Assign the agent to the configuration and verify data flowing in the pipeline overview
+   - Assign the agent and verify data flowing in the pipeline overview
 
 4. **Add Fields with a Processor**
-   - Use the live log preview in Bindplane to inspect in-flight records
-   - Apply an *Add Fields* transform processor to tag every log with a `project` attribute
-   - Roll out the configuration change and confirm the new field appears in Dynatrace Logs
+   - Apply an *Add Fields* transform to tag every log with a `project` attribute
 
-5. **Parse Logs with Dynatrace OpenPipeline**
+5. **Volume Reduction**
+   - Sample routine allowed firewall sessions while forwarding every denied session in full
+   - Measure the before and after byte counts and relate them to Grail ingest and retention cost
+
+6. **Structured Field Extraction**
+   - Parse the PAN-OS CSV into named attributes such as `pan.src_ip`, `pan.action` and `pan.bytes_sent`
+   - Compare the DQL experience before and after
+
+7. **Severity Enrichment**
+   - Reclassify log severity from the firewall action rather than the syslog priority
+   - Make the Dynatrace severity filter and alerting usable on this source
+
+8. **Security Context Tagging**
+   - Set `dt.security_context` from the firewall action so Grail ABAC policies can scope access
+   - Relate the result to the APRA CPS 234 classification requirement
+
+9. **Parse Logs with Dynatrace OpenPipeline**
    - Create an OpenPipeline logs pipeline using the Syslog technology bundle
-   - Tune the processor matching condition to align with the lab's log file path
-   - Route logs to the pipeline using a dynamic route keyed on the `project` field
-   - Verify raw syslog content is now fully parsed into discrete, queryable fields
+   - Route logs to it using a dynamic route keyed on the `project` field
 
-6. **Mask Sensitive Data & Route Selectively**
-   - Identify plaintext credentials leaking through syslog audit logs
-   - Add a Bindplane *Redact Sensitive Data* processor with custom regex rules and a hashing strategy
-   - Insert a Bindplane router to limit redaction to only credential-bearing logs
-   - Confirm hashed values replace the originals in Dynatrace
+10. **Monitor Bindplane Health**
+    - Observe the health of your Bindplane infrastructure using Self-Monitoring
 
-7. **Extract Metrics from Logs**
-   - Generate counter metrics from structured log data using OpenPipeline metric extraction
+11. **Mask Sensitive Data & Route Selectively**
+    - Add a *Redact Sensitive Data* processor with custom regex rules and a hashing strategy
+    - Insert a router so redaction applies only to credential-bearing logs
 
-8. **Monitor Bindplane Health**
-   - Observe the health of your Bindplane infrastructure using Self-Monitoring (SFM)
+12. **Extract Metrics from Logs**
+    - Generate counter metrics from the redacted credential data using OpenPipeline
 
 Ready to build a log pipeline?
 

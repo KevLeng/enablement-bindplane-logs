@@ -4,6 +4,10 @@ By the end of the lab, you'll know how to:
 
 - Deploy and configure a Bindplane agent on a Linux host
 - Define sources, processors, and destinations in a Bindplane configuration
+- Cut log volume by more than 80 percent by sampling routine firewall traffic while keeping every denied session
+- Parse raw CSV firewall records into named, queryable attributes before they are stored
+- Set log severity from what the firewall actually did rather than trusting the syslog priority
+- Classify records with `dt.security_context` so Grail ABAC policies can scope access to them
 - Enrich logs with custom metadata before they leave the host
 - Parse structured fields out of raw syslog content using Dynatrace OpenPipeline
 - Detect and mask sensitive credentials in-flight using regex-based redaction

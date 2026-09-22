@@ -10,11 +10,15 @@ nav:
   - "3. Installing the Bindplane Agent": 3-bindplane-agent.md
   - "4. Bindplane Configuration": 4-bindplane-configuration.md
   - "5. Processors: Add a Field": 5-add-field.md
-  - "6. Parsing with OpenPipeline": 6-parsing-with-openpipeline.md
-  - "7. Masking Data & Routing": 7-masking-routing.md
-  - "8. Extracting Metrics from Logs": 8-metric-extraction.md
-  - "9. Bindplane Health": 9-bindplane-health.md
-  - "10. Quick Reference": 10-quick-reference.md
+  - "6. Volume Reduction": pipeline-volume-reduction.md
+  - "7. Structured Field Extraction": pipeline-field-extraction.md
+  - "8. Severity Enrichment": pipeline-severity-enrichment.md
+  - "9. Security Context Tagging": pipeline-security-context.md
+  - "10. Parsing with OpenPipeline": 6-parsing-with-openpipeline.md
+  - "11. Bindplane Health": 9-bindplane-health.md
+  - "12. Masking Sensitive Data": 7-masking-routing.md
+  - "13. Extracting Metrics from Logs": 8-metric-extraction.md
+  - "14. Quick Reference": 10-quick-reference.md
 
 extra:
   rum_snippet: "https://js-cdn.dynatrace.com/jstag/1612cf70810/bf81393wlb/7c50bce5c0cc890f_complete.js"

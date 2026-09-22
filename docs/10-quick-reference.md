@@ -128,7 +128,21 @@ BCH_ACCESS_KEY_ID=(?<bch_access_key_id>\w+)
 
 Target Field Type **Attribute**, target field blank. Then create metric `log.exposed_bch_credentials.count`, type **Sum**, value `1`, dimension `bch_access_key_id`.
 
-### 7. Monitor collector health &mdash; [details](9-bindplane-health.md)
+### 7. Pipeline use cases on the PAN-OS stream
+
+These four run on the Syslog source and are covered in full on their own pages. All are **Custom** processors taking raw collector YAML. Order matters: parsing must come first, the other three read the attributes it sets.
+
+| Order | Processor | Purpose | Page |
+|---|---|---|---|
+| 1 | `transform/panos_parse` | CSV to named `pan.*` attributes | [details](pipeline-field-extraction.md) |
+| 2 | `filter/panos_volume` | Sample allows, keep all denies. 83% byte reduction measured | [details](pipeline-volume-reduction.md) |
+| 3 | `transform/panos_severity` | allow INFO, deny/drop WARN, reset-both ERROR | [details](pipeline-severity-enrichment.md) |
+| 4 | `transform/panos_security_context` | `network-operational` vs `security-events` | [details](pipeline-security-context.md) |
+
+!!! danger "Parse attributes\["message"\], not body"
+    The Syslog source puts the raw line including the `<134>...` prefix in `body`, and the CSV alone in `attributes["message"]`. Splitting `body` shifts every field by one and fails silently.
+
+### 8. Monitor collector health &mdash; [details](9-bindplane-health.md)
 
 Add the **Bindplane Agent** source (metrics + logs), link it to the Dynatrace destination, and add a **Custom** processor covering both signals:
 
