@@ -13,12 +13,12 @@ The whole lab on one page: what the environment looks like, and every setting yo
         |                                       |
         | writes files                          | sends UDP
         v                                       v
-  /var/log/syslog                         udp/5140   syslog    (RFC 3164)
-  /var/log/auth.log                       udp/2055   netflow   (NetFlow v5)
-  /var/log/kern.log                             |
-  /var/log/cron.log                             |
-  /var/log/fail2ban.log                         |
-  /var/log/audit/audit.log                      |
+  /var/log/syslog           COLLECT       udp/5140   syslog    (RFC 3164)
+  /var/log/audit/audit.log  COLLECT       udp/2055   netflow   (NetFlow v5)
+  /var/log/fail2ban.log     COLLECT             |
+  /var/log/auth.log         dup of syslog       |
+  /var/log/kern.log         dup of syslog       |
+  /var/log/cron.log         dup of syslog       |
         |                                       |
         +------------------+--------------------+
                            v
@@ -56,16 +56,21 @@ Both generators start automatically. You do **not** need to start them.
 
 ## Sources to create
 
+Collect these three files, and **only** these three:
+
 | Source type | Setting | Contains |
 |---|---|---|
-| **File** | `/var/log/syslog` | Everything, RFC 5424 |
-| **File** | `/var/log/auth.log` | sshd, sudo, PAM |
-| **File** | `/var/log/kern.log` | `[UFW BLOCK]`, kernel, OOM |
+| **File** | `/var/log/syslog` | Everything rsyslog receives, RFC 5424 |
+| **File** | `/var/log/audit/audit.log` | auditd &mdash; **including the leaked credentials**. Not syslog format |
 | **File** | `/var/log/fail2ban.log` | Bans. Not syslog format |
-| **File** | `/var/log/audit/audit.log` | auditd, incl. the leaked credentials. Not syslog format |
 | **Syslog** | UDP port `5140`, **RFC 3164** | PAN-OS, Azure NSG, Citrix, AVD, HAProxy |
 | **NetFlow** | UDP port `2055` | NetFlow v5 flow records |
 | **Bindplane Agent** | metrics **and** logs | Collector self-monitoring |
+
+!!! danger "Do not collect auth.log, kern.log or cron.log"
+    rsyslog writes every `auth`, `kern` and `cron` record to **two** places: the facility file *and* `/var/log/syslog`. Collecting both ingests the same event twice, in two formats. On a measured run those three files were 589,497 of 1,420,526 bytes &mdash; **41% of total volume, entirely duplicate**. Dropping them costs you nothing.
+
+    `audit/audit.log` and `fail2ban.log` are *not* duplicates. auditd and fail2ban write their own files and never pass through rsyslog, so their content appears nowhere else. Collect all three, and you still get the full 41% saving.
 
 !!! warning "Ports and format"
     `5140` and `2055` are the Bindplane defaults and the generator's defaults, so leave them alone. Choose **RFC 3164**, not 5424 -- the UDP generator emits BSD-format records.
@@ -78,7 +83,7 @@ Copy the install command from Bindplane, run it in the container terminal, confi
 
 ### 2. Create the configuration &mdash; [details](4-bindplane-configuration.md)
 
-Platform **Linux**. Add a File source for `/var/log/syslog`, then the **Dynatrace** destination (environment ID + the token with `logs.ingest` and `metrics.ingest`). Assign the agent, then **Rollout**.
+Platform **Linux**. Add the three File sources from the table above, then the **Dynatrace** destination (environment ID + the token with `logs.ingest` and `metrics.ingest`). Assign the agent, then **Rollout**.
 
 ### 3. Add a field &mdash; [details](5-add-field.md)
 
@@ -146,7 +151,7 @@ curl -s localhost:8888/metrics | grep throughputmeasurement_log_count
 **Are the files being written?**
 
 ```bash
-tail -f /var/log/auth.log
+tail -f /var/log/syslog
 ```
 
 **Is it in Dynatrace?**
@@ -161,10 +166,10 @@ fetch logs | filter log.file.name == "syslog" | sort timestamp desc | limit 50
 
 | Scenario | Signature | Where |
 |---|---|---|
-| `brute_force` | Repeated `Failed password` from one bad IP, then a ban | `auth.log`, `fail2ban.log` |
-| `recon` | Targeted `[UFW BLOCK]` sweep across 22/80/443/3306 | `kern.log` |
-| `data_exfil` | `curl … -T /etc/passwd`, AppArmor `type=AVC` denial | `auth.log`, `audit/audit.log` |
-| `leak_bch_key` | `BCH_ACCESS_KEY_ID=` in an auditd EXECVE record | `audit/audit.log` |
+| `brute_force` | Repeated `Failed password` from one bad IP, then a ban | `syslog` + `fail2ban.log` |
+| `recon` | Targeted `[UFW BLOCK]` sweep across 22/80/443/3306 | `syslog` |
+| `data_exfil` | `curl … -T /etc/passwd`, AppArmor `type=AVC` denial | `syslog` + `audit/audit.log` |
+| `leak_bch_key` | `BCH_ACCESS_KEY_ID=` in an auditd EXECVE record | `audit/audit.log` only |
 
 !!! tip "Signal versus noise"
     Failed logins and UFW blocks also occur as ordinary background noise, spread thinly across many `203.0.113.x` addresses. The scenarios differ by being *concentrated* on a single known-bad IP. A detection that counts `Failed password` drowns in the noise; one that groups by source IP finds the incident.
