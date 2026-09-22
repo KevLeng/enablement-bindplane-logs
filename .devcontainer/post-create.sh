@@ -33,8 +33,14 @@ setUpTerminal
 # If you want to deploy your own App, just create a function in the functions.sh file and call it here.
 # deployMyCustomApp
 
-sudo mkdir -p /var/log/bpsystem
-sudo chown -R "$USER":"$USER" /var/log/bpsystem
+# The generator writes to the real Linux log paths, so the lab looks like a
+# production host rather than a sandbox directory. Pre-create the files it
+# appends to and hand those to $USER; /var/log itself stays root-owned, as it
+# is on a real host.
+for logfile in syslog auth.log kern.log cron.log; do
+	sudo touch "/var/log/$logfile"
+	sudo chown "$(id -un)":"$(id -gn)" "/var/log/$logfile"
+done
 
 if ! declare -F startLogGenerator > /dev/null; then
 	printError "startLogGenerator is not defined. Ensure .devcontainer/util/my_functions.sh is sourced via source_framework.sh."

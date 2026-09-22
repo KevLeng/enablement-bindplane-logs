@@ -219,3 +219,5 @@ Dockerfile.framework
 docs/stylesheets/extra.css
 
 generator.pid
+# network telemetry generator PID
+telemetry.pid

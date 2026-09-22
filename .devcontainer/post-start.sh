@@ -13,6 +13,10 @@ fi
 
 startLogGenerator
 
+# Opt-in: also push syslog (udp/5140) and NetFlow v5 (udp/2055) at 127.0.0.1 for
+# the Bindplane Syslog / NetFlow sources. Uncomment once the lab covers them.
+startNetworkTelemetry
+
 #TODO: BeforeGoLive comment this so the Mkdocs are not exposed in the container.
 # we want to monitor all interactions of the users in the live github pages.
 #exposeMkdocs

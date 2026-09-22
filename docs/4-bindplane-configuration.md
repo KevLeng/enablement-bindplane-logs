@@ -2,7 +2,7 @@ A Bindplane **Configuration** is a reusable, version-controlled definition of a 
 
 In this section, you'll build your first configuration:
 
-- **Source:** a File source pointed at `/var/log/bpsystem/syslog`, using Bindplane's built-in filelog receiver to tail the syslog file your Dev Container is actively writing to
+- **Source:** a File source pointed at `/var/log/syslog`, using Bindplane's built-in filelog receiver to tail the syslog file your Dev Container is actively writing to
 - **Destination:** the Dynatrace destination, which sends logs over OTLP/HTTP directly to your Dynatrace environment using your environment ID and platform token
 
 Once you assign your agent to the configuration and roll it out, you'll be able to see log throughput in the Bindplane pipeline overview and verify that raw syslog records are appearing in Dynatrace's Logs app.
@@ -20,7 +20,7 @@ Use the search box to search for "file", and choose the File source.
 
 ### 3. Configure the File source
 1. Create a descriptive name, like "Syslog File" for your source
-2. Add the Syslog file path that we examined before:  `/var/log/bpsystem/syslog`
+2. Add the Syslog file path that we examined before:  `/var/log/syslog`
 3. Click "Next"
 
 ![alt text](img/4-bindplane-configuration/3-add-source.png)

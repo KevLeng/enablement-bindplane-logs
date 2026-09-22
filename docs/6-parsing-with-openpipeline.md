@@ -62,7 +62,7 @@ It's a common convention to write syslog messages to `/var/log/syslog`, so the d
 ```
 matchesValue(dt.openpipeline.source, "extension:syslog") or matchesValue(log.source, "/var/log/syslog")
 ```
-You may recall that our syslog messages aren't written to `/var/log/syslog`.  In fact, we don't even have a field available to us named `log.source`.
+Our syslog messages *are* written to `/var/log/syslog`, so you might expect this condition to match already.  It won't: `log.source` is a field produced by Dynatrace's syslog extension, but our logs arrive through Bindplane's filelog receiver instead.  We don't have a field named `log.source` available to us at all.
 
 Can you think of a field that we can use instead?  Maybe open a new browser tab and inspect our logs for a field that serves the same purpose.
 

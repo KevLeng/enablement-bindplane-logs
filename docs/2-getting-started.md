@@ -59,10 +59,10 @@ We'll be doing all of our work inside this Dev Container.  Take a look at the te
 
 Press any key or open a new terminal window to continue.
 
-This host writes its logs to files in `/var/log/bpsystem`.  Navigate to that directory and view the contents
+This host writes its logs to the standard Linux log paths under `/var/log`, exactly where you would find them on a real server.  Navigate to that directory and view the contents
 
 ```
-> cd /var/log/bpsystem
+> cd /var/log
 > ls
 auth.log  cron.log  kern.log  syslog
 ```

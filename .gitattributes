@@ -1,0 +1,6 @@
+# These files are executed inside the Linux Dev Container. A CRLF shebang
+# ("#!/bin/bash\r") makes the kernel look for an interpreter named "bash\r"
+# and fail with "not found", so keep them LF regardless of core.autocrlf.
+*.sh      text eol=lf
+*.py      text eol=lf
+Makefile  text eol=lf
