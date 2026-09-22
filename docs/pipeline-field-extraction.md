@@ -80,6 +80,49 @@ Verified against live records from the lab generator. The ones that matter for t
 
 The `future_use` columns are real PAN-OS padding fields. They are named so the positions line up, and you can ignore them.
 
+## Troubleshooting: nothing got parsed
+
+The most common failure is a header whose column count does not match the record. It is nasty because it looks like nothing happened at all.
+
+**Symptom.** Records arrive in Dynatrace as normal, but carry no `pan.*` attributes. Nothing errors in the Bindplane UI, the processor shows as healthy, and every downstream processor that reads `pan.action` silently stops doing anything.
+
+**Cause.** The CSV parser requires the header to name exactly as many columns as the record contains. One name too many or too few and it rejects the whole record and passes it through untouched.
+
+**Confirm it** in the collector log on the lab host:
+
+```bash
+sudo grep "wrong number of fields" /opt/observiq-otel-collector/log/collector.log | tail -3
+```
+
+A mismatch looks like this, and the numbers tell you both sides of the problem:
+
+```
+wrong number of fields: expected 37, found 38
+```
+
+**Count the real fields** rather than trusting any documentation, including this page. Ask the generator directly:
+
+```bash
+python3 -c "import sys, time; sys.path.insert(0, '.devcontainer/util'); import push_telemetry as p; print(len(p.ev_panos_traffic(time.time())[4].split(',')))"
+```
+
+Or count what actually reached Dynatrace, which also catches the case where the record changed in flight:
+
+```
+fetch logs
+| filter matchesPhrase(content, "TRAFFIC,end")
+| fieldsAdd field_count = arraySize(splitString(content, ","))
+| summarize count(), by: {field_count}
+```
+
+A TRAFFIC record from this lab's generator has **38** fields. If you get a different number, the generator has changed and the header above needs to change with it.
+
+!!! tip "Do not count fields with --dry-run"
+    `push_telemetry.py --dry-run` truncates each sample line to 150 characters for readability, so piping it into a field counter reports about 12 fields instead of 38. It is useful for eyeballing the format, not for counting it.
+
+!!! warning "Do not fix a count mismatch by deleting a column name"
+    It is tempting to drop a name to make the numbers line up. That shifts every column after the deletion by one position, so the parse then succeeds while quietly putting the wrong values in the wrong fields. Deleting `elapsed`, for example, makes `session_end_reason` pick up the session duration instead. Add or remove the column at the position where the record actually differs.
+
 ## Before and after at query time
 
 Finding large transfers on a denied session.
