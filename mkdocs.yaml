@@ -10,8 +10,8 @@ nav:
   - "3. Installing the Bindplane Agent": 3-bindplane-agent.md
   - "4. Bindplane Configuration": 4-bindplane-configuration.md
   - "5. Processors: Add a Field": 5-add-field.md
-  - "6. Volume Reduction": pipeline-volume-reduction.md
-  - "7. Structured Field Extraction": pipeline-field-extraction.md
+  - "6. Structured Field Extraction": pipeline-field-extraction.md
+  - "7. Volume Reduction": pipeline-volume-reduction.md
   - "8. Severity Enrichment": pipeline-severity-enrichment.md
   - "9. Security Context Tagging": pipeline-security-context.md
   - "10. Parsing with OpenPipeline": 6-parsing-with-openpipeline.md

@@ -37,13 +37,13 @@ During this hands-on training, you will install and configure Bindplane to colle
 4. **Add Fields with a Processor**
    - Apply an *Add Fields* transform to tag every log with a `project` attribute
 
-5. **Volume Reduction**
-   - Sample routine allowed firewall sessions while forwarding every denied session in full
-   - Measure the before and after byte counts and relate them to Grail ingest and retention cost
-
-6. **Structured Field Extraction**
-   - Parse the PAN-OS CSV into named attributes such as `pan.src_ip`, `pan.action` and `pan.bytes_sent`
+5. **Structured Field Extraction**
+   - Use the Bindplane *Parse CSV* processor to turn the PAN-OS CSV into named attributes such as `pan.src_ip`, `pan.action` and `pan.bytes_sent`
    - Compare the DQL experience before and after
+
+6. **Volume Reduction**
+   - Use the *Sampling* processor to drop routine allowed sessions while forwarding every denied session in full
+   - Measure the before and after byte counts and relate them to Grail ingest and retention cost
 
 7. **Severity Enrichment**
    - Reclassify log severity from the firewall action rather than the syslog priority

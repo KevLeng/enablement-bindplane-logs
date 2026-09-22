@@ -17,21 +17,29 @@ Firewall data makes that awkward quickly. Allowed session records are operationa
 | `drop` | `security-events` | Security operations |
 | `reset-both` | `security-events` | Security operations |
 
-## The pipeline config
+## Configure it in Bindplane
 
-Bindplane **Custom** processor. Place it **after** the parsing processor.
+Reads `pan.action`, so place it **after** Parse CSV. This needs two **Add Fields** processors, one per classification.
 
-```yaml
-transform/panos_security_context:
-  error_mode: ignore
-  log_statements:
-    - context: log
-      statements:
-        - set(attributes["dt.security_context"], "network-operational") where attributes["pan.action"] == "allow"
-        - set(attributes["dt.security_context"], "security-events") where attributes["pan.action"] == "deny" or attributes["pan.action"] == "drop" or attributes["pan.action"] == "reset-both"
-```
+**Processor 1, operational traffic**
 
-Records that are not PAN-OS TRAFFIC do not match either condition and keep `default-unclassified`. That is deliberate. Silently reclassifying data you have not explicitly reasoned about is how access control mistakes happen.
+| Setting | Value |
+|---|---|
+| Field name | `dt.security_context` |
+| Field value | `network-operational` |
+| Condition | `attributes["pan"]["action"] == "allow"` |
+
+**Processor 2, security events**
+
+| Setting | Value |
+|---|---|
+| Field name | `dt.security_context` |
+| Field value | `security-events` |
+| Condition | `attributes["pan"]["action"] != "allow" and attributes["pan"]["action"] != nil` |
+
+The second condition tests for "not allow" rather than listing the three denied actions. That way a PAN-OS action this lab does not generate still gets classified as a security event rather than silently falling through. The `!= nil` guard stops non-PAN-OS records on the same source from being tagged.
+
+Records that are not PAN-OS TRAFFIC match neither condition and keep `default-unclassified`. That is deliberate. Silently reclassifying data you have not reasoned about is how access control mistakes happen.
 
 ## Measured result
 
@@ -68,7 +76,7 @@ This is a control contribution, not compliance on its own. CPS 234 covers a grea
 
     Everything should be `default-unclassified`.
 
-2. In Bindplane, add a **Custom** processor after the parsing processor. Paste the `transform/panos_security_context` config.
+2. In Bindplane, add the two **Add Fields** processors described above, after Parse CSV. Use the live preview to confirm a denied record picks up `security-events` before you roll out.
 
 3. Roll out the configuration.
 

@@ -130,17 +130,17 @@ Target Field Type **Attribute**, target field blank. Then create metric `log.exp
 
 ### 7. Pipeline use cases on the PAN-OS stream
 
-These four run on the Syslog source and are covered in full on their own pages. All are **Custom** processors taking raw collector YAML. Order matters: parsing must come first, the other three read the attributes it sets.
+These four run on the Syslog source and are covered in full on their own pages. All are built-in Bindplane processors configured from the UI, no custom code. Order matters: Parse CSV must come first, the other three read the attributes it sets.
 
-| Order | Processor | Purpose | Page |
+| Order | Bindplane processor | Purpose | Page |
 |---|---|---|---|
-| 1 | `transform/panos_parse` | CSV to named `pan.*` attributes | [details](pipeline-field-extraction.md) |
-| 2 | `filter/panos_volume` | Sample allows, keep all denies. 83% byte reduction measured | [details](pipeline-volume-reduction.md) |
-| 3 | `transform/panos_severity` | allow INFO, deny/drop WARN, reset-both ERROR | [details](pipeline-severity-enrichment.md) |
-| 4 | `transform/panos_security_context` | `network-operational` vs `security-events` | [details](pipeline-security-context.md) |
+| 1 | **Parse CSV** | CSV to named `pan.*` attributes | [details](pipeline-field-extraction.md) |
+| 2 | **Sampling** | Drop 90% of allows, keep all denies. 84% measured | [details](pipeline-volume-reduction.md) |
+| 3 | **Severity** | allow INFO, deny/drop WARN, reset-both ERROR | [details](pipeline-severity-enrichment.md) |
+| 4 | **Add Fields** x2 | `network-operational` vs `security-events` | [details](pipeline-security-context.md) |
 
-!!! danger "Parse attributes\["message"\], not body"
-    The Syslog source puts the raw line including the `<134>...` prefix in `body`, and the CSV alone in `attributes["message"]`. Splitting `body` shifts every field by one and fails silently.
+!!! danger "Two settings that will bite you"
+    Parse `attributes.message`, not `body`. The Syslog source puts the raw line including the `<134>...` prefix in `body` and the CSV alone in `attributes.message`, so parsing `body` shifts every field by one and fails silently. And always set the Condition, or the JSON records from Citrix and NSG on the same port will flood the log with CSV parse errors.
 
 ### 8. Monitor collector health &mdash; [details](9-bindplane-health.md)
 

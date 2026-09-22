@@ -4,78 +4,87 @@
 
 A PAN-OS TRAFFIC record arrives as one long comma separated string. Dynatrace stores it in the `content` field and has no idea that position 31 is the firewall action or that position 33 is the byte count. Everything in that record is technically present and practically unreachable.
 
-The cost of that shows up at query time. Every question you ask has to split the string first, index the right position, and cast the result. The analyst has to know the field offsets by heart, the queries are unreadable, and nothing can be used as a dimension in a dashboard or an alert without repeating the same parsing expression.
+The cost shows up at query time. Every question you ask has to split the string first, index the right position, and cast the result. The analyst has to know the field offsets by heart, the queries are unreadable, and nothing can be used as a dimension in a dashboard or an alert without repeating the same parsing expression.
 
-Parsing once at the pipeline puts named attributes on the record before it is ever stored. The query becomes a normal filter on a normal field. The same attributes then drive severity, security context, and metric dimensions, so this one processor is what the other three use cases are built on. Do this exercise first if you are running the whole set.
+Bindplane has a **Parse CSV** processor that does this from the UI. You give it the delimiter and a list of column names, and it turns the CSV into named attributes. Do this exercise first, because the three use cases that follow all read the attributes it produces.
 
-## The field map
+## Configure it in Bindplane
 
-Verified against 1,780 live records from the lab generator. A TRAFFIC record has **38 comma separated fields**.
+Add a processor to your Syslog source and search for **CSV**. Choose **Parse CSV**, then fill in four things.
 
-| Index | Field | Example |
-|---|---|---|
-| 4 | record type | `TRAFFIC` |
-| 8 | source IP | `10.23.38.26` |
-| 9 | destination IP | `104.80.13.177` |
-| 12 | rule name | `Allow-O365` |
-| 13 | user | `contoso.local\hnakamura` |
-| 15 | application | `ldap` |
-| 17 | source zone | `trust` |
-| 18 | destination zone | `dmz` |
-| 23 | session ID | `351213` |
-| 25 | source port | `26054` |
-| 26 | destination port | `389` |
-| 30 | protocol | `tcp` |
-| 31 | action | `allow` |
-| 33 | bytes sent | `277998` |
-| 34 | bytes received | `1334817` |
-| 35 | packets | `9361` |
-| 37 | session end reason | `aged-out` |
+**Parse From**
 
-!!! danger "Parse the message attribute, not the body"
-    The Bindplane Syslog source puts the **full raw line** in `body`, including the `<134>Sep 22 ... PAN-OS:` prefix. It puts the **CSV alone** in `attributes["message"]`. A config that splits `body` will produce fields that are all shifted by one and will not error, it will just be quietly wrong. Always split `attributes["message"]`.
-
-## The pipeline config
-
-Bindplane **Custom** processor. This is the first processor in the chain.
-
-```yaml
-transform/panos_parse:
-  error_mode: ignore
-  log_statements:
-    - context: log
-      statements:
-        - set(cache["f"], Split(attributes["message"], ",")) where attributes["appname"] == "PAN-OS"
-        - set(cache["ok"], true) where Len(cache["f"]) == 38 and cache["f"][4] == "TRAFFIC"
-        - set(attributes["pan.src_ip"], cache["f"][8]) where cache["ok"] == true
-        - set(attributes["pan.dst_ip"], cache["f"][9]) where cache["ok"] == true
-        - set(attributes["pan.rule_name"], cache["f"][12]) where cache["ok"] == true
-        - set(attributes["pan.user"], cache["f"][13]) where cache["ok"] == true
-        - set(attributes["pan.app"], cache["f"][15]) where cache["ok"] == true
-        - set(attributes["pan.src_zone"], cache["f"][17]) where cache["ok"] == true
-        - set(attributes["pan.dst_zone"], cache["f"][18]) where cache["ok"] == true
-        - set(attributes["pan.session_id"], cache["f"][23]) where cache["ok"] == true
-        - set(attributes["pan.src_port"], Int(cache["f"][25])) where cache["ok"] == true
-        - set(attributes["pan.dst_port"], Int(cache["f"][26])) where cache["ok"] == true
-        - set(attributes["pan.protocol"], cache["f"][30]) where cache["ok"] == true
-        - set(attributes["pan.action"], cache["f"][31]) where cache["ok"] == true
-        - set(attributes["pan.bytes_sent"], Int(cache["f"][33])) where cache["ok"] == true
-        - set(attributes["pan.bytes_received"], Int(cache["f"][34])) where cache["ok"] == true
-        - set(attributes["pan.packets"], Int(cache["f"][35])) where cache["ok"] == true
-        - set(attributes["pan.session_end_reason"], cache["f"][37]) where cache["ok"] == true
+```
+attributes.message
 ```
 
-How it works. The first statement splits the CSV once and parks the resulting list in `cache`, which is scratch space that exists for the lifetime of this record and is never exported. The second statement sets a guard flag, so a short or malformed record is skipped instead of producing garbage attributes. Every remaining statement reads one position out of the cached list.
+**Parse To**
 
-`Int()` matters on the numeric fields. Without it you get the string `"277998"`, which cannot be summed or compared in a DQL numeric filter. Ports, byte counts and packet counts all go through `Int()`. Session ID stays a string because the volume reduction exercise pattern matches on its last character.
+```
+attributes.pan
+```
 
-`error_mode: ignore` means a record that does not look like PAN-OS passes through untouched rather than failing the batch.
+**Delimiter**: a single comma.
+
+**Header**: paste this. It names all 38 positions in a TRAFFIC record.
+
+```
+future_use1,future_use2,receive_time,serial,type,subtype,future_use3,generated_time,src_ip,dst_ip,nat_src_ip,nat_dst_ip,rule_name,user,dst_user,app,vsys,src_zone,dst_zone,inbound_if,outbound_if,log_action,future_use4,session_id,repeat_count,src_port,dst_port,nat_src_port,nat_dst_port,flags,protocol,action,bytes,bytes_sent,bytes_received,packets,elapsed,session_end_reason
+```
+
+**Condition**: this one is not optional.
+
+```
+attributes.appname == "PAN-OS" and attributes.message contains ",TRAFFIC,end,"
+```
+
+!!! danger "Without the condition, this processor will fail"
+    Your Syslog source carries more than firewall logs. The Citrix, FSLogix and Azure NSG records on the same port are JSON, which contains quotes and commas. Feeding those to a CSV parser produces a stream of `bare " in non-quoted field` and `wrong number of fields` errors. Tested: with the condition in place, zero parse errors. Without it, hundreds.
+
+!!! danger "Parse the message attribute, not the body"
+    The Syslog source puts the **full raw line** in `body`, including the `<134>Sep 22 ... PAN-OS:` prefix. It puts the **CSV alone** in `attributes.message`. Parsing `body` shifts every field by one and does not raise an error, it is just quietly wrong.
+
+## The generated config
+
+For reference, this is what Bindplane builds from those settings. You do not need to paste it anywhere.
+
+```yaml
+logstransform/panos_csv:
+  operators:
+    - type: csv_parser
+      if: 'attributes.appname == "PAN-OS" and attributes.message contains ",TRAFFIC,end,"'
+      parse_from: attributes.message
+      parse_to: attributes.pan
+      delimiter: ","
+      header: "future_use1,future_use2,receive_time,serial,type,subtype,future_use3,generated_time,src_ip,dst_ip,nat_src_ip,nat_dst_ip,rule_name,user,dst_user,app,vsys,src_zone,dst_zone,inbound_if,outbound_if,log_action,future_use4,session_id,repeat_count,src_port,dst_port,nat_src_port,nat_dst_port,flags,protocol,action,bytes,bytes_sent,bytes_received,packets,elapsed,session_end_reason"
+```
+
+## The fields you get
+
+Verified against live records from the lab generator. The ones that matter for the later exercises:
+
+| Attribute | Example |
+|---|---|
+| `pan.src_ip` | `10.56.108.190` |
+| `pan.dst_ip` | `13.138.205.95` |
+| `pan.rule_name` | `Citrix-to-Backend` |
+| `pan.user` | `contoso.local\gsantos` |
+| `pan.app` | `citrix-cgp` |
+| `pan.src_zone` / `pan.dst_zone` | `trust` / `dmz` |
+| `pan.src_port` / `pan.dst_port` | `26054` / `389` |
+| `pan.protocol` | `tcp` |
+| `pan.action` | `allow` |
+| `pan.bytes_sent` / `pan.bytes_received` | `648334` / `1334817` |
+| `pan.packets` | `8895` |
+| `pan.session_end_reason` | `tcp-rst-from-client` |
+
+The `future_use` columns are real PAN-OS padding fields. They are named so the positions line up, and you can ignore them.
 
 ## Before and after at query time
 
-Finding large outbound transfers on a denied session.
+Finding large transfers on a denied session.
 
-**Before**, with string parsing at query time:
+**Before:**
 
 ```
 fetch logs
@@ -85,42 +94,40 @@ fetch logs
 | filter action != "allow" and bytes_sent > 1000000
 ```
 
-**After**, with parsed attributes:
+**After:**
 
 ```
 fetch logs
-| filter pan.action != "allow" and pan.bytes_sent > 1000000
+| filter pan.action != "allow" and toLong(pan.bytes_sent) > 1000000
 ```
 
-The second one is readable, uses an index, and the fields are available in the log viewer sidebar, in dashboard dimensions, and in alert conditions without restating the parse.
+!!! tip "Numeric fields arrive as strings"
+    Parse CSV produces string values for every column, including byte and packet counts. Wrap them in `toLong()` when you need a numeric comparison or a sum. If you would rather have real numeric types on the record, that needs a Custom processor with OTTL and `Int()` conversions, which is more powerful and considerably less convenient. For this lab the `toLong()` cast is the better trade.
 
 ## Lab exercise
 
-**Goal:** turn the CSV blob into queryable attributes.
+**Goal:** turn the CSV blob into named attributes using only the Bindplane UI.
 
-1. In Dynatrace, find one PAN-OS record and look at it in the log viewer. Note that `content` holds the whole CSV and there are no useful fields to filter on.
+1. In Dynatrace, open one PAN-OS record in the log viewer. `content` holds the whole CSV and there is nothing useful to filter on.
 
 2. Run the "before" query above. Note how much of it is scaffolding rather than analysis.
 
-3. In Bindplane, add a **Custom** processor as the **first** processor on your Syslog source. Paste the `transform/panos_parse` config.
+3. In Bindplane, add a **Parse CSV** processor as the **first** processor on your Syslog source. Fill in the five settings above.
 
-4. Use the live preview in Bindplane to inspect a record before rolling out. You should see the `pan.*` attributes appear alongside the original body.
+4. Use the live preview before rolling out. You should see the `pan.*` attributes appear. Check one deliberately: find a record where `pan.action` is not `allow` and confirm `pan.session_end_reason` reads `policy-deny`.
 
 5. Roll out the configuration.
 
-6. Back in Dynatrace, open a new PAN-OS record. The `pan.*` attributes should now be listed as fields.
+6. In Dynatrace, open a new PAN-OS record. The `pan.*` attributes should now be listed as fields.
 
-7. Run the "after" query. Confirm it returns the same records as the "before" query.
+7. Run the "after" query and confirm it returns the same records.
 
-8. Prove the types are right. This only works if `pan.bytes_sent` is a number, not a string.
+8. Summarise by a parsed field, which was not possible before.
 
     ```
     fetch logs
     | filter isNotNull(pan.action)
-    | summarize total = sum(pan.bytes_sent), by: {pan.action}
+    | summarize count(), by: {pan.action, pan.rule_name}
     ```
 
-**Checkpoint:** you can summarise bytes by action without any `splitString` in the query.
-
-!!! tip "Why the pan. prefix"
-    Namespacing the attributes keeps them clearly separate from fields Dynatrace sets itself, and from any other source you add to the same configuration later. It also makes them easy to find in the log viewer sidebar, which sorts fields alphabetically.
+**Checkpoint:** you can group firewall records by action and rule without a single `splitString` in the query, and you configured it without writing any code.

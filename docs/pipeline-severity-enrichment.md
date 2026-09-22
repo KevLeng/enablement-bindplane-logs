@@ -2,65 +2,91 @@
 
 ## The problem
 
-PAN-OS forwards every TRAFFIC log at informational severity, whatever the firewall actually did. A session that was denied by policy and a session that completed normally both arrive with syslog priority 134, which is `local0.info`. You can verify this on the lab data: every TRAFFIC record carries the same priority regardless of its action field.
+PAN-OS forwards every TRAFFIC log at informational severity, whatever the firewall actually did. A session denied by policy and a session that completed normally both arrive with syslog priority 134, which is `local0.info`. You can verify this on the lab data: every TRAFFIC record carries the same priority regardless of its action.
 
-This is not a bug in PAN-OS. Traffic logs are informational by definition in the PAN-OS severity model, and only THREAT logs carry a varying severity. But the effect downstream is that Dynatrace shows a wall of INFO records, the log viewer severity filter is useless on this source, and you cannot write an alert on "firewall denials" without falling back to string matching on the content field.
+This is not a bug in PAN-OS. Traffic logs are informational by definition in the PAN-OS severity model, and only THREAT logs carry a varying severity. The effect downstream is that Dynatrace shows a wall of INFO records, the severity filter in the log viewer is useless on this source, and you cannot alert on firewall denials without falling back to string matching.
 
-The action field already holds the truth. Severity enrichment simply promotes that truth into the severity of the record, so that the standard Dynatrace tooling starts working. Filtering by severity in the log viewer, colouring in the log timeline, and alerting on error-level events all become available without any source specific knowledge.
+The action field already holds the truth. Severity enrichment promotes it into the severity of the record, so standard Dynatrace tooling starts working. Filtering by severity, colouring in the log timeline, and alerting on error-level events all become available without any source specific knowledge.
 
 ## The mapping
 
 | PAN-OS action | Severity | Reasoning |
 |---|---|---|
-| `allow` | INFO | Session was permitted, nothing happened |
+| `allow` | INFO | Session permitted, nothing happened |
 | `deny` | WARN | Policy blocked the session before it started |
 | `drop` | WARN | Packets silently discarded |
-| `reset-both` | ERROR | Firewall actively tore down both ends, the most aggressive response it has |
+| `reset-both` | ERROR | Firewall actively tore down both ends, its most aggressive response |
 
-Splitting `reset-both` out as ERROR gives you three usable levels instead of two. It is also the action most likely to indicate something actively hostile rather than a routine policy match, so it is the one worth paging on.
+Splitting `reset-both` out as ERROR gives three usable levels instead of two. It is also the action most likely to indicate something actively hostile rather than a routine policy match, so it is the one worth paging on.
 
-## The pipeline config
+## Configure it in Bindplane
 
-Bindplane **Custom** processor. Place it **after** the parsing processor, since it reads `pan.action`.
+Reads `pan.action`, so place it **after** Parse CSV.
 
-```yaml
-transform/panos_severity:
-  error_mode: ignore
-  log_statements:
-    - context: log
-      statements:
-        - set(severity_text, "INFO") where attributes["pan.action"] == "allow"
-        - set(severity_number, SEVERITY_NUMBER_INFO) where attributes["pan.action"] == "allow"
-        - set(severity_text, "WARN") where attributes["pan.action"] == "deny" or attributes["pan.action"] == "drop"
-        - set(severity_number, SEVERITY_NUMBER_WARN) where attributes["pan.action"] == "deny" or attributes["pan.action"] == "drop"
-        - set(severity_text, "ERROR") where attributes["pan.action"] == "reset-both"
-        - set(severity_number, SEVERITY_NUMBER_ERROR) where attributes["pan.action"] == "reset-both"
+Add a processor and search for **Severity**. Then set:
+
+**Parse From**
+
+```
+attributes.pan.action
 ```
 
-Set both `severity_text` and `severity_number`. The text is what a human sees in the log viewer, the number is what Dynatrace sorts and filters on. Setting only one of them produces a record that looks right but does not filter correctly.
+**Overwrite Text**: on.
 
-The statements run in order and the later ones overwrite the earlier ones, so a record can only end on one severity. Records that are not PAN-OS never match any condition and keep whatever severity they arrived with.
+**Mapping**: map each severity level to the action values that should produce it.
+
+| Level | Values |
+|---|---|
+| `info` | `allow` |
+| `warn` | `deny`, `drop` |
+| `error` | `reset-both` |
+
+**Condition**
+
+```
+attributes.appname == "PAN-OS" and attributes.message contains ",TRAFFIC,end,"
+```
+
+!!! tip "Turn Overwrite Text on"
+    Without it the processor sets the severity *number* correctly but leaves the severity *text* as the raw action value, so the log viewer shows `reset-both` where you expect `ERROR`. Tested both ways: with Overwrite Text off you get `severityText=deny, severityNumber=13`. With it on you get `severityText=WARN, severityNumber=13`. Dynatrace derives its log level from the number either way, but the text is what a human reads.
+
+### The generated config
+
+```yaml
+logstransform/panos_severity:
+  operators:
+    - type: severity_parser
+      if: 'attributes.appname == "PAN-OS" and attributes.message contains ",TRAFFIC,end,"'
+      parse_from: attributes.pan.action
+      overwrite_text: true
+      mapping:
+        info: allow
+        warn:
+          - deny
+          - drop
+        error: reset-both
+```
 
 ## Measured result
 
-Run against the lab generator output after the processor was applied:
+Tested against live generator output:
 
 ```
-  action=allow        severityText=INFO    n=91
-  action=deny         severityText=WARN    n=24
-  action=drop         severityText=WARN    n=30
-  action=reset-both   severityText=ERROR   n=27
+  action=allow        severityText=INFO    severityNumber=9    n=414
+  action=deny         severityText=WARN    severityNumber=13   n=15
+  action=drop         severityText=WARN    severityNumber=13   n=10
+  action=reset-both   severityText=ERROR   severityNumber=17   n=10
 ```
 
-Every record was reclassified, and no record was left at the original misleading INFO.
+Severity numbers 9, 13 and 17 are the OpenTelemetry values for INFO, WARN and ERROR. Every record was reclassified and none was left at the original misleading INFO.
 
 ## Lab exercise
 
 **Goal:** make the Dynatrace severity filter work on firewall logs.
 
-1. In Dynatrace, open the Logs app and filter to your PAN-OS records. Open the severity facet. Everything is INFO, including the denials. This is the problem.
+1. In the Logs app, filter to your PAN-OS records and open the severity facet. Everything is INFO, including the denials. That is the problem.
 
-2. Confirm it at the source. In the container, look at the syslog priority on a denied session.
+2. Confirm it at the source.
 
     ```bash
     python3 .devcontainer/util/push_telemetry.py --dry-run 2>&1 | grep PAN-OS
@@ -68,17 +94,19 @@ Every record was reclassified, and no record was left at the original misleading
 
     Every TRAFFIC line starts with `<134>`, which is `local0.info`.
 
-3. In Bindplane, add a **Custom** processor after the parsing processor. Paste the `transform/panos_severity` config.
+3. In Bindplane, add a **Severity** processor after Parse CSV. Configure the mapping above and turn on Overwrite Text.
 
-4. Roll out the configuration.
+4. Use the live preview. Find a `reset-both` record and confirm its severity reads ERROR before you roll out.
 
-5. Back in the Logs app, open the severity facet again. You should now see INFO, WARN and ERROR, with the counts roughly matching the action mix: about 92 percent INFO, 5 percent WARN, 2 percent ERROR.
+5. Roll out the configuration.
 
-6. Filter to `severity == "ERROR"`. Every record returned should have `pan.action = reset-both`.
+6. Open the severity facet again. You should now see three levels, roughly 92 percent INFO, 5 percent WARN and 2 percent ERROR.
 
-7. Build an alert. Create a metric or an alert condition on ERROR level logs from this source. Note that you did this without mentioning PAN-OS field positions anywhere, because the severity is now standard.
+7. Filter to ERROR. Every record returned should have `pan.action = reset-both`.
 
-**Checkpoint:** the severity facet in the log viewer shows three levels, and an ERROR filter returns only `reset-both` sessions.
+8. Build an alert on ERROR level logs from this source. Note that you did it without referencing a single PAN-OS field position, because the severity is now standard.
+
+**Checkpoint:** the severity facet shows three levels, and an ERROR filter returns only `reset-both` sessions.
 
 !!! tip "This interacts with volume reduction"
-    If you have already applied the volume reduction filter, your INFO proportion will be much lower, because most of the allow traffic was sampled away. That is expected. The denied sessions were all retained, so WARN and ERROR counts are unaffected. It is worth pointing this out in a bootcamp, because the severity mix visibly changes between the two exercises and students will ask.
+    If you already applied the Sampling processor, your INFO proportion will be far lower, because most allow traffic was sampled away. That is expected and worth pointing out in a bootcamp, because the mix visibly changes between the two exercises and students will ask. The WARN and ERROR counts are unaffected, which is the whole point.
