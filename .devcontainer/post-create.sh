@@ -5,9 +5,9 @@ source .devcontainer/util/source_framework.sh
 
 setUpTerminal
 
-#startK3dCluster
+startK3dCluster
 
-#installK9s
+installK9s
 
 #TODO: BeforeGoLive: uncomment this. This is only needed for professors to have the Mkdocs live in the container
 
@@ -15,10 +15,10 @@ setUpTerminal
 
 
 # Dynatrace Operator can be deployed automatically
-#dynatraceDeployOperator
+dynatraceDeployOperator
 
 # You can deploy CNFS or AppOnly
-#deployCloudNative
+deployCloudNative
 #deployApplicationMonitoring
 
 # In here you deploy the Application you want
@@ -29,9 +29,13 @@ setUpTerminal
 #certmanagerInstall
 #certmanagerEnable
 #deployAstroshop
+deployApp astroshop
 
 # If you want to deploy your own App, just create a function in the functions.sh file and call it here.
 # deployMyCustomApp
+
+
+#### Bindplane Stuff
 
 # The generator writes to the real Linux log paths, so the lab looks like a
 # production host rather than a sandbox directory. Pre-create the files it
