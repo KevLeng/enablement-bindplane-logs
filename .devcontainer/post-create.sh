@@ -3,11 +3,11 @@
 export SECONDS=0
 source .devcontainer/util/source_framework.sh
 
+variablesNeeded DT_ENVIRONMENT:true DT_OPERATOR_TOKEN:true DT_INGEST_TOKEN:false || exit 1
+
 setUpTerminal
 
-export CLUSTER_ENGINE=kind
-startKindCluster
-# startK3dCluster removed as has issues with CNFS
+startK3dCluster 
 
 installK9s
 
@@ -20,8 +20,8 @@ installK9s
 dynatraceDeployOperator
 
 # You can deploy CNFS or AppOnly
-deployCloudNative
-#deployApplicationMonitoring
+#deployCloudNative
+deployApplicationMonitoring
 
 # In here you deploy the Application you want
 # The TODO App will be deployed as a sample
