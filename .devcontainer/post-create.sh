@@ -5,7 +5,9 @@ source .devcontainer/util/source_framework.sh
 
 setUpTerminal
 
-startK3dCluster
+export CLUSTER_ENGINE=kind
+startKindCluster
+# startK3dCluster removed as has issues with CNFS
 
 installK9s
 
