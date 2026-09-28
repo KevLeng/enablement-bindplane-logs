@@ -1,31 +1,101 @@
 A Bindplane **Configuration** is a reusable, version-controlled definition of a telemetry pipeline. It describes three things: where data comes from (**Sources**), how it's transformed in-flight (**Processors**), and where it's sent (**Destinations**). Once a configuration is created, it can be deployed to one or many agents with a single rollout, and rolled back just as easily if something goes wrong.
 
-In this section, you'll build your first configuration:
+In this section you build your first configuration: four sources and one destination.
 
-- **Source:** a File source pointed at `/var/log/syslog`, using Bindplane's built-in filelog receiver to tail the syslog file your Dev Container is actively writing to
-- **Destination:** the Dynatrace destination, which sends logs over OTLP/HTTP directly to your Dynatrace environment using your environment ID and platform token
+| Source | Collects | Setting |
+|---|---|---|
+| **File** | Linux host logs | Three paths, listed in step 2 |
+| **Syslog** | PAN-OS firewall records | UDP `5140`, RFC 3164 |
+| **NetFlow** | Flow records | UDP `2055` |
+| **Bindplane** | The collector's own logs | `/var/log/bindplane/bindplane.log` |
 
-Once you assign your agent to the configuration and roll it out, you'll be able to see log throughput in the Bindplane pipeline overview and verify that raw syslog records are appearing in Dynatrace's Logs app.
+| Destination | Sends to |
+|---|---|
+| **Dynatrace** | Your environment over OTLP/HTTP, using your environment ID and token |
+
+Once you assign your agent and roll it out, you will see throughput in the Bindplane pipeline overview and records arriving in the Dynatrace Logs app.
 
 ### 1. Create the configuration
 Choose a descriptive name for your configuration, choose **Linux** for the platform, and click "next"
 ![alt text](img/4-bindplane-configuration/1-create-configuration.png)
 
-### 2. Create a source
-Now we're going to ingest our Syslog logs with a log source. On the following screen, click "Add Source". This will bring up all of the available sources we can choose from.
+### 2. Add the File source
 
-Use the search box to search for "file", and choose the File source.
+Click **Add Source**, search for `file`, and choose **File**.
 
-![alt text](img/4-bindplane-configuration/2-find-source.png)
+![Find the File source](img/4-bindplane-configuration/2-find-source-file.png)
 
-### 3. Configure the File source
-1. Create a descriptive name, like "Syslog File" for your source
-2. Add the Syslog file path that we examined before:  `/var/log/syslog`
-3. Click "Next"
+Configure it with all three log files. These are the only three worth collecting: `auth.log`, `kern.log` and `cron.log` are duplicates of what is already in `syslog`, so adding them would double your volume for nothing.
 
-![alt text](img/4-bindplane-configuration/3-add-source.png)
+| Setting | Value |
+|---|---|
+| Short Description | `file` |
+| File Path(s) | `/var/log/syslog`<br>`/var/log/audit/audit.log`<br>`/var/log/fail2ban.log` |
+| Log Type | `file` |
+| Multiline Parsing | `none` |
 
-### 4. Create a Destination
+![Configure the File source paths](img/4-bindplane-configuration/2-find-source-file-paths.png)
+
+### 3. Add the Syslog source
+
+Click **Add Source**, search for `syslog`, and choose **Syslog**.
+
+![Find the Syslog source](img/4-bindplane-configuration/2-find-source-syslog.png)
+
+| Setting | Value |
+|---|---|
+| Short Description | `syslog` |
+| Listening IP Address | `0.0.0.0` |
+| Listening Port | `5140` |
+| Protocol | `rfc3164` |
+| Transport Protocol | `udp` |
+| Data Flow | `high` |
+| Timezone | `UTC` |
+| Parse To | `body` |
+| Multiline Parsing | `none` |
+
+![Configure the Syslog source](img/4-bindplane-configuration/2-find-source-syslog-configure.png)
+
+!!! warning "Two settings that matter later"
+    **Protocol** must be `rfc3164`, not 5424. The generator sends BSD-format records, and 5424 will fail to parse them.
+
+    **Parse To** must be `body`. It controls where the parsed syslog fields land, and the Parse CSV processor in a later section points at `body.message`. If you set this to `attributes`, that processor finds nothing and fails silently.
+
+### 4. Add the NetFlow source
+
+Click **Add Source**, search for `netflow`, and choose **NetFlow**.
+
+![Find the NetFlow source](img/4-bindplane-configuration/2-find-source-netflow.png)
+
+| Setting | Value |
+|---|---|
+| Short Description | `Netflow` |
+| Telemetry Type | `LOGS` |
+| Scheme | `netflow` |
+| Hostname | `0.0.0.0` |
+| Port | `2055` |
+| Sockets | `1` |
+| Workers | `1` |
+| Send Raw | unchecked |
+
+![Configure the NetFlow source](img/4-bindplane-configuration/2-find-source-netflow-configure.png)
+
+!!! tip "NetFlow arrives as logs"
+    The NetFlow receiver emits on the logs signal, so flow records show up in the Logs app rather than as metrics. NetFlow v5 needs no template exchange, so records decode immediately.
+
+### 5. Add the Bindplane source
+
+This one collects the collector's own logs, which you will use later for self-monitoring. Search for `bindplane` and choose **Bindplane**.
+
+![Find the Bindplane source](img/4-bindplane-configuration/3-add-bindplane-agent-logs-source.png)
+
+| Setting | Value |
+|---|---|
+| Bindplane Log Path | `/var/log/bindplane/bindplane.log` |
+
+![Configure the Bindplane source](img/4-bindplane-configuration/3-add-bindplane-agent-logs-source-configure.png)
+
+### 6. Create a Destination
 We need to send our logs somewhere to make use of them.  Let's create a Destination that will send our logs to Dynatrace.
 
 1. Click "Add Destination"
@@ -34,7 +104,7 @@ We need to send our logs somewhere to make use of them.  Let's create a Destinat
 
 ![alt text](img/4-bindplane-configuration/4-find-destination.png)
 
-### 5. Configure the Destination
+### 7. Configure the Destination
 
 Have a look at the documentation for Dyntrace's [OTel API](https://docs.dynatrace.com/docs/ingest-from/opentelemetry/otlp-api#base-url) to understand how to structure your endpoint URL.
 
@@ -50,13 +120,24 @@ Alternatively, you can enter a custom [Dynatrace OTLP endpoint](https://docs.dyn
 
 Click "Save" and you'll be sent to the Configuration you just created.
 
-### 6. View the Configuration and Pipeline
+### 8. View the Configuration and Pipeline
 
 We've created a Bindplane Configuration that can deployed wherever we need to collect and send logs.  You can see the logs pipeline we created, but it's not doing much right now because we haven't told any agents to use it.  Scroll down and you'll see a listing of all the agents using this configuration (none yet!), and a button to "Add Agents".
 
 ![alt text](img/4-bindplane-configuration/6-view-pipeline.png)
 
-### 7. Add the Agents to the Configuration
+The configuration view lists every source you added, with the destination on the right.
+
+![Configuration summary](img/4-bindplane-configuration/6-view-pipeline-config.png)
+
+The pipeline graph shows all four sources converging on the Dynatrace destination. Each source has its own processor slot, which is where you will add Parse CSV, Sampling and the rest in the sections that follow.
+
+![Pipeline graph with all four sources](img/4-bindplane-configuration/6-view-pipeline-with-bindplane-collector-source.png)
+
+!!! tip "Throughput reads 0 B/m until an agent is attached"
+    The percentages on each link are the share of data flowing down that path. They stay at zero until you complete the next step, so do not read anything into them yet.
+
+### 9. Add the Agents to the Configuration
 
 1. Click "Add Agents"
 2. In the pop-up dialog, choose the Agent you created earlier
@@ -64,7 +145,7 @@ We've created a Bindplane Configuration that can deployed wherever we need to co
 
 ![alt text](img/4-bindplane-configuration/7-add-agent.png)
 
-### 8. View the Data Flow
+### 10. View the Data Flow
 
 Now let's check to see that data is flowing in our pipeline
 
@@ -75,7 +156,7 @@ Once you're done, navigate back to your configuration.
 
 ![alt text](img/4-bindplane-configuration/8-overview-flow.png)
 
-### 9. View Logs in Dynatrace
+### 11. View Logs in Dynatrace
 
 Now let's verify that we're seeing the logs in Dynatrace.
 
