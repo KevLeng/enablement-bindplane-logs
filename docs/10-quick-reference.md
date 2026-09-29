@@ -87,6 +87,14 @@ Copy the install command from Bindplane, run it in the container terminal, confi
   <a href="../img/3-bindplane-agent/get_agent_installation_command.mp4">Download the video</a> instead.
 </video>
 
+<video controls muted playsinline preload="metadata" style="width:100%; max-width:100%; height:auto;">
+  <source src="../img/3-bindplane-agent/terminal-installation.mp4" type="video/mp4">
+  Your browser does not support embedded video.
+  <a href="../img/3-bindplane-agent/terminal-installation.mp4">Download the video</a> instead.
+</video>
+
+![Collector reported in](img/3-bindplane-agent/reported-collector.png)
+
 ### 2. Create the configuration &mdash; [details](4-bindplane-configuration.md)
 
 Platform **Linux**. Add the three File sources from the table above, then the **Dynatrace** destination (environment ID + the token with `logs.ingest` and `metrics.ingest`). Assign the agent, then **Rollout**.

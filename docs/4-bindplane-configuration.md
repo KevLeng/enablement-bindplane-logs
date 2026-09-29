@@ -7,7 +7,7 @@ In this section you build your first configuration: four sources and one destina
 | **File** | Linux host logs | Three paths, listed in step 2 |
 | **Syslog** | PAN-OS firewall records | UDP `5140`, RFC 3164 |
 | **NetFlow** | Flow records | UDP `2055` |
-| **Bindplane** | The collector's own logs | `/var/log/bindplane/bindplane.log` |
+| **Bindplane Collector** | The collector's own logs and metrics | Defaults, no changes needed |
 
 | Destination | Sends to |
 |---|---|
@@ -18,6 +18,16 @@ Once you assign your agent and roll it out, you will see throughput in the Bindp
 ### 1. Create the configuration
 Choose a descriptive name for your configuration, choose **Linux** for the platform, and click "next"
 ![alt text](img/4-bindplane-configuration/1-create-configuration.png)
+
+### Watch: adding all four sources
+
+<video controls muted playsinline preload="metadata" style="width:100%; max-width:100%; height:auto;">
+  <source src="../img/4-bindplane-configuration/add-sources-video.mp4" type="video/mp4">
+  Your browser does not support embedded video.
+  <a href="../img/4-bindplane-configuration/add-sources-video.mp4">Download the video</a> instead.
+</video>
+
+The same four sources are broken down step by step below.
 
 ### 2. Add the File source
 
@@ -89,11 +99,19 @@ This one collects the collector's own logs, which you will use later for self-mo
 
 ![Find the Bindplane source](img/4-bindplane-configuration/3-add-bindplane-agent-logs-source.png)
 
-| Setting | Value |
-|---|---|
-| Bindplane Log Path | `/var/log/bindplane/bindplane.log` |
+Don't change any values.  Just accept the defaults.
 
-![Configure the Bindplane source](img/4-bindplane-configuration/3-add-bindplane-agent-logs-source-configure.png)
+![Configure the Bindplane Collector source](img/4-bindplane-configuration/bindplane-self-telemetry.png)
+
+<!-- | Setting | Value |
+|---|---|
+| Bindplane Log Path | `/var/log/bindplane/bindplane.log` | -->
+
+<!-- ![Configure the Bindplane source](img/4-bindplane-configuration/3-add-bindplane-agent-logs-source-configure.png) -->
+
+With all four sources added, click **Next** to move on to the destination.
+
+![All four sources added](img/4-bindplane-configuration/all-sources-next-click-next-to-add-destination.png)
 
 ### 6. Create a Destination
 We need to send our logs somewhere to make use of them.  Let's create a Destination that will send our logs to Dynatrace.

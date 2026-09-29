@@ -32,6 +32,12 @@ You'll be shown a command that installs the agent.  Copy it and run it in your t
 
 You should see some text scroll by, and a message indicating that the Bindplane agent was installed.
 
+<video controls muted playsinline preload="metadata" style="width:100%; max-width:100%; height:auto;">
+  <source src="../img/3-bindplane-agent/terminal-installation.mp4" type="video/mp4">
+  Your browser does not support embedded video.
+  <a href="../img/3-bindplane-agent/terminal-installation.mp4">Download the video</a> instead.
+</video>
+
 <!-- ![Terminal](img/3-bindplane-agent/terminal.png) -->
 
 You may see some messages instructing you to use `systemctl` to start the Bindplane service.  DON'T DO THAT!  In this environment, you have a command called `startBindplane` instead.  Go ahead and run that in your terminal.
@@ -44,6 +50,8 @@ You may see some messages instructing you to use `systemctl` to start the Bindpl
     Don't use the `systemctl` command to start Bindplane as the installation script mentions.  Instead, use the `startBindplane` command available in your terminal.
 
 Once you've run that command, you should see your agent show up in the Bindplane UI.  It will be named after the host it is installed on.  If you are using a Codespace, it will be your Codespace name.  If you are using a local Dev Container, it will take the name of your Docker implementation.
+
+![Collector reported in](img/3-bindplane-agent/reported-collector.png)
 
 <!-- ![Success](img/3-bindplane-agent/success.png) -->
 
