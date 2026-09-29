@@ -12,6 +12,16 @@ Bindplane has a **Parse CSV** processor that does this from the UI. You give it 
 
 Add a processor to your Syslog source, search for **CSV**, and choose **Parse CSV**. Telemetry type is **LOGS**.
 
+### Watch: parsing the PAN-OS CSV
+
+<video controls muted playsinline preload="metadata" style="width:100%; max-width:100%; height:auto;">
+  <source src="../img/pipeline-field-extraction/pan-os-csv-parsing.mp4" type="video/mp4">
+  Your browser does not support embedded video.
+  <a href="../img/pipeline-field-extraction/pan-os-csv-parsing.mp4">Download the video</a> instead.
+</video>
+
+The same steps are written out below.
+
 ### Condition
 
 Two conditions joined with **AND**. Both match on **Body**, because the Bindplane Syslog source moves the parsed syslog fields into the body.
