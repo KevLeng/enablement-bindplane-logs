@@ -144,14 +144,17 @@ Target Field Type **Attribute**, target field blank. Then create metric `log.exp
 
 ### 7. Pipeline use cases on the PAN-OS stream
 
-These four run on the Syslog source and are covered in full on their own pages. All are built-in Bindplane processors configured from the UI, no custom code. Order matters: Parse CSV must come first, the other three read the attributes it sets.
+Both run on the Syslog source and are covered in full on their own pages. Both are built-in Bindplane processors configured from the UI, no custom code. Order matters: Parse CSV must come first, because Sampling reads the attributes it sets.
 
 | Order | Bindplane processor | Purpose | Page |
 |---|---|---|---|
 | 1 | **Parse CSV** | CSV to named `pan.*` fields, 38-column header | [details](pipeline-field-extraction.md) |
 | 2 | **Sampling** | Drop 90% of allows, keep all denies. 84% measured | [details](pipeline-volume-reduction.md) |
+
+<!-- Hidden along with their pages, not part of the current lab run:
 | 3 | **Severity** | allow INFO, deny/drop WARN, reset-both ERROR | [details](pipeline-severity-enrichment.md) |
 | 4 | **Add Fields** x2 | `network-operational` vs `security-events` | [details](pipeline-security-context.md) |
+-->
 
 !!! danger "Two settings that will bite you"
     Source Field Type is **Body**, Source Field is `message`. The Bindplane Syslog source moves `appname`, `message` and `hostname` out of attributes into the body, so a processor pointed at attributes finds nothing. And always set the Condition, or the JSON records from Citrix and NSG on the same port will flood the log with CSV parse errors.
