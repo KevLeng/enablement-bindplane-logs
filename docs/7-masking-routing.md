@@ -78,6 +78,8 @@ Begin by clicking the pencil icon between the first Processing Node coming out o
 
 Choose "Insert Connector", and then choose "Routing"
 
+![Insert Connector](img/7-masking-routing/insert-connector.png)
+
 Here is where we will create our routing logic.  The Router uses [OTTL](https://github.com/open-telemetry/opentelemetry-collector-contrib/blob/main/pkg/ottl/README.md) conditions to match the log messages and then route them appropriately.
 
 The routes are evaluated in order, and the first match wins.  So we want to place our most specific rules at the top, and our general "catch-all" rules at the bottom.
@@ -113,11 +115,19 @@ Now we just need to wire everything up to route our data effectively.
 
 Once you Save the Routing node, you'll see it inserted into your pipeline.  The default connection should connect the `bch-credentials` route to the New Processor Node containing the Redaction Processor.  Handy! That's what we want.  Now all we have to do is route `default` around the new processor to keep them flowing.
 
+![Routing node inserted, bch-credentials connected and the second route unconnected](img/7-masking-routing/routing-based-on-content.png)
+
+<!-- Superseded by routing-based-on-content.png, which shows the current four-source pipeline:
 ![Initial Route](img/7-masking-routing/4-initial-route.png)
+-->
 
 Now just click on the plus "+" icon on the right side of the `default` route, and then click on the Processor Node that feeds into the Dynatrace Destination.
 
+![The second route connected through to the Dynatrace destination](img/7-masking-routing/connecting-default-route-to-destination.png)
+
+<!-- Superseded by connecting-default-route-to-destination.png:
 ![alt text](img/7-masking-routing/4-connected-route.png)
+-->
 
 Click "Start Rollout" to apply changes.
 

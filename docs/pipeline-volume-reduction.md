@@ -22,6 +22,10 @@ body["pan"]["action"] == "allow"
 
 **Drop Ratio**: `0.9`
 
+![Sample Logs processor set to drop 90 percent of allow traffic](img/volume-reduction/sample-pan-os-allow-logs-0.9.png)
+
+The **Field** is chosen from the dropdown rather than typed. Picking `pan["action"]` there is what produces the OTTL condition above.
+
 That is the whole configuration. The processor drops 90 percent of the records that match the condition and passes everything else through untouched. Because the condition names `allow` explicitly, a `deny`, `drop` or `reset-both` record can never be selected for dropping.
 
 | Drop Ratio | Keeps of allow traffic |
