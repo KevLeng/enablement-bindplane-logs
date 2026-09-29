@@ -10,26 +10,35 @@ OpenPipeline can do this parsing once, at ingest, and promote those values into 
 
 Before writing an extraction rule, inspect what the `paymentservice` is actually logging.
 
-In the Dynatrace **Kubernetes** app, navigate to your cluster → **Namespaces** → `astroshop` → `paymentservice`. Open the workload logs and expand a record. Look at the `content` field — this is the raw log message before any extraction.
+In the Dynatrace **Kubernetes** app, open the **Explorer** tab and filter to your cluster. Click **Namespaces** in the left panel, select `astroshop`, then click **Services** just under `astroshop` and select `payment`. Open the **Logs** tab and expand a few records.
 
-A typical payment log looks like this:
+The `payment` service emits two log types. The one we care about is **"Transaction complete."** — it contains the commercially useful fields as a structured JSON object in the `content` field:
 
+```json
+{
+  "msg": "Transaction complete.",
+  "transactionId": "37ef9f4d-c2c3-407b-ad6d-49c455532f50",
+  "cardType": "american-express",
+  "lastFourDigits": "0005",
+  "amount": {
+    "units": { "low": 1053 },
+    "nanos": 914197257,
+    "currencyCode": "EUR"
+  },
+  "loyalty_level": "silver"
+}
 ```
-PaymentService#charge invoked: amount=36.99 currency=USD orderId=a3f9c1b2 provider=stripe result=success
-```
 
-The fields you want to promote to attributes are:
+The fields you want to promote to top-level attributes are:
 
-| Field in message | Target attribute |
+| JSON field | Target attribute |
 |---|---|
-| `amount` | `payment.amount` |
-| `currency` | `payment.currency` |
-| `orderId` | `payment.order_id` |
-| `provider` | `payment.provider` |
-| `result` | `payment.result` |
-
-!!! tip "Your logs may look different"
-    The exact message format depends on the version of astroshop deployed. Spend a minute reading a few raw records before configuring the extraction — the pattern you write needs to match what is actually there, not what the documentation says should be there.
+| `msg` | `app.payment.msg` |
+| `transactionId` | `app.payment.transactionId` |
+| `cardType` | `app.payment.cardType` |
+| `amount.units.low` | `app.payment.amount` |
+| `amount.currencyCode` | `app.payment.currencyCode` |
+| `loyalty_level` | `app.payment.loyaltyLevel` |
 
 ## Create the OpenPipeline pipeline
 
@@ -45,20 +54,29 @@ Expand the **Processors** drawer and click **+ Add**, then select **Field Extrac
 
 Give it a descriptive name: `Extract payment fields`.
 
-**Matching condition** — scope this processor to payment logs only:
+**Matching condition** — scope this processor to "Transaction complete." logs only:
 
 ```
-matchesValue(k8s.namespace.name, "astroshop") and matchesValue(k8s.container.name, "paymentservice")
+matchesValue(k8s.namespace.name, "astroshop") and matchesValue(k8s.container.name, "payment") and matchesPhrase(content, "Transaction complete.")
 ```
 
-**Expression** — use the `parse` function with a pattern that matches the message structure you observed. For the example format above:
+The `content` field is a JSON string, so use a multi-step expression that parses it into a variant, extracts each field, then removes the intermediate variant to keep the record clean:
 
 ```
-parse(content, "LD 'amount=' DOUBLE:payment.amount ' currency=' WORD:payment.currency ' orderId=' WORD:payment.order_id ' provider=' WORD:payment.provider ' result=' WORD:payment.result")
+parse content, "JSON:json_content"
+| fieldsAdd app.payment.msg           = json_content[`msg`]
+| fieldsAdd app.payment.transactionId = json_content[`transactionId`]
+| fieldsAdd app.payment.cardType      = json_content[`cardType`]
+| fieldsAdd app.payment.amount        = json_content[`amount`][`units`][`low`]
+| fieldsAdd app.payment.currencyCode  = json_content[`amount`][`currencyCode`]
+| fieldsAdd app.payment.loyaltyLevel  = json_content[`loyalty_level`]
+| fieldsRemove json_content
 ```
 
-!!! info "Reading parse patterns"
-    `LD` skips any leading text before the first anchor. `DOUBLE` captures a decimal number, `WORD` captures a sequence of non-space characters. Each capture is followed by a colon and the target field name. Dynatrace's [parse function reference](https://docs.dynatrace.com/docs/platform/grail/dynatrace-query-language/functions/dql-functions-parse) covers the full pattern syntax.
+`app.payment.amount` captures `units.low` — the integer part of the protobuf amount (e.g. `1053` for a €1053 transaction). This is directly usable for aggregation without further conversion.
+
+!!! tip "Test before saving"
+    Paste a raw "Transaction complete." record into the sample input box and confirm all six fields appear in the output before saving.
 
 **Sample log** — paste one of the raw payment records into the sample input box. Run the preview and confirm the five fields appear in the output before saving.
 
@@ -71,7 +89,7 @@ The pipeline exists but nothing is flowing through it yet. Open the **Dynamic Ro
 | Setting | Value |
 |---|---|
 | Name | `astroshop payment logs` |
-| Matching condition | `matchesValue(k8s.namespace.name, "astroshop") and matchesValue(k8s.container.name, "paymentservice")` |
+| Matching condition | `matchesValue(k8s.namespace.name, "astroshop") and matchesValue(k8s.container.name, "payment")` |
 | Pipeline | `astroshop - Payment Enrichment` |
 
 Save and confirm.
@@ -81,39 +99,67 @@ Save and confirm.
 
 ## Verify the result
 
-Open the Log Viewer and filter to the `paymentservice`. Open a recent record. The extracted fields should appear alongside the standard Kubernetes attributes:
+Open the Log Viewer and filter to the `payment` service. Open a recent "Transaction complete." record. The extracted fields should appear alongside the standard Kubernetes attributes:
 
-- `payment.amount`
-- `payment.currency`
-- `payment.order_id`
-- `payment.provider`
-- `payment.result`
+- `app.payment.transactionId`
+- `app.payment.cardType`
+- `app.payment.amount`
+- `app.payment.currencyCode`
+- `app.payment.loyaltyLevel`
 
 Once those fields exist as first-class attributes, they are queryable, filterable, and available in dashboards without any parsing in the query itself.
 
+## DQL reference
+
+**View raw "Transaction complete." logs:**
+```dql
+fetch logs
+| filter k8s.namespace.name == "astroshop" and k8s.container.name == "payment"
+  and matchesPhrase(content, "Transaction complete.")
+| fields timestamp, content
+| limit 20
+```
+
+**Parse fields inline — use this to test the pattern before configuring OpenPipeline:**
+```dql
+fetch logs
+| filter k8s.namespace.name == "astroshop" and k8s.container.name == "payment"
+  and matchesPhrase(content, "Transaction complete.")
+| parse content, "JSON:json_content"
+| fieldsAdd app.payment.msg           = json_content[`msg`]
+| fieldsAdd app.payment.transactionId = json_content[`transactionId`]
+| fieldsAdd app.payment.cardType      = json_content[`cardType`]
+| fieldsAdd app.payment.amount        = json_content[`amount`][`units`][`low`]
+| fieldsAdd app.payment.currencyCode  = json_content[`amount`][`currencyCode`]
+| fieldsAdd app.payment.loyaltyLevel  = json_content[`loyalty_level`]
+| fieldsRemove json_content
+| fields timestamp, app.payment.transactionId, app.payment.cardType, app.payment.amount, app.payment.currencyCode, app.payment.loyaltyLevel
+| limit 20
+```
+
+**After extraction — count by card type and currency (no parse needed):**
+```dql
+fetch logs
+| filter isNotNull(app.payment.cardType)
+| summarize transactions = count(), by: {app.payment.cardType, app.payment.currencyCode}
+| sort transactions desc
+```
+
+**After extraction — transactions by loyalty tier:**
+```dql
+fetch logs
+| filter isNotNull(app.payment.loyaltyLevel)
+| summarize transactions = count(), by: {app.payment.loyaltyLevel}
+| sort transactions desc
+```
+
 ## What you can do with extracted fields
 
-**Filter to failed payments in the Log Viewer:**
-Select `payment.result = failed` from the filter bar.
+**Filter by card type in the Log Viewer:**
+Select `app.payment.cardType = "american-express"` from the filter bar — no query required.
 
-**Count transactions by provider and outcome:**
-```
-fetch logs
-| filter isNotNull(payment.provider)
-| summarize count(), by: {payment.provider, payment.result}
-```
-
-**Find the largest transactions:**
-```
-fetch logs
-| filter isNotNull(payment.amount)
-| sort toDouble(payment.amount) desc
-| limit 10
-| fields timestamp, payment.order_id, payment.amount, payment.currency, payment.provider
-```
-
-**Alert on payment failures:**
-With `payment.result` as a proper attribute, a Log Metric or custom alert can fire when `payment.result = "failed"` exceeds a threshold — no string matching required.
+**Alert on a specific loyalty tier or card type:**
+With `app.payment.loyaltyLevel` as a proper attribute, a Log Metric or custom alert can fire on specific conditions — no string matching against raw JSON required.
 
 ## Troubleshooting
 
@@ -121,9 +167,9 @@ With `payment.result` as a proper attribute, a Log Metric or custom alert can fi
 
 The parse pattern did not match the sample log. Check:
 
-- Is the anchor text (`'amount='`) exactly what appears in the log, including case and spacing?
-- Does the log use a different separator between fields (comma, pipe) rather than spaces?
-- Is the `content` field the right source, or are the values nested inside a `body` subfield?
+- Does the `content` field contain valid JSON? Paste a raw record into the sample input box and confirm it parses without error.
+- Are the JSON key names exactly right? `loyalty_level` (underscore) and `currencyCode` (camelCase) are easy to mistype.
+- Is the nested path correct? `currency` lives at `amount.currencyCode`, not at the top level.
 
 Adjust the pattern against the real log text until the preview shows the expected output.
 
@@ -142,24 +188,25 @@ Confirm the Dynamic Route is active and its matching condition evaluates to true
 
 **Goal:** promote payment fields from a buried message string into queryable attributes using OpenPipeline, then use those attributes without writing a parse expression in any query.
 
-1. In the Kubernetes app, open the `paymentservice` logs. Read five records and note the exact format of the message string — the anchor words, separators, and field order.
+1. In the Kubernetes app, open the **Explorer** tab and navigate to your cluster → **Services** (under `astroshop`) → `payment` → **Logs**. Click **Run query** next to **Show logs in current context**. Expand a "Transaction complete." record and read the raw JSON in the `content` field — note the field names and structure.
 
-2. In OpenPipeline, create the `astroshop - Payment Enrichment` pipeline and add the Field Extraction processor. Use the sample input box to test your pattern against a real record before saving.
+2. In OpenPipeline, create the `astroshop - Payment Enrichment` pipeline and add the Field Extraction processor. Paste a real "Transaction complete." record into the sample input box and run the preview — confirm all five fields appear in the output before saving.
 
 3. Create the Dynamic Route and wait for new records to arrive (about one minute).
 
-4. Open a new `paymentservice` log record. Confirm `payment.result`, `payment.provider`, and `payment.amount` are present as attributes.
+4. Open a new "Transaction complete." log record. Confirm `app.payment.transactionId`, `app.payment.cardType`, and `app.payment.currencyCode` are present as attributes.
 
-5. Use the Log Viewer filter bar (not a query) to show only records where `payment.result = failed`. How many are there in the last 30 minutes?
+5. Use the Log Viewer filter bar (not a query) to show only records where `app.payment.loyaltyLevel = "silver"`. How many are there in the last 30 minutes?
 
-6. Navigate to one of the failed payment records. Click its `trace_id` to open the correlated trace. Is the failure visible as an error span?
+6. Run a query to count transactions by card type and currency:
 
-7. Build a query that summarizes total transaction value by currency for the last hour. Because `payment.amount` is extracted as a string, you will need `toDouble()` — but you write that once here, not in every future query.
-
-    ```
+    ```dql
     fetch logs
-    | filter isNotNull(payment.amount)
-    | summarize total = sum(toDouble(payment.amount)), by: {payment.currency}
+    | filter isNotNull(app.payment.cardType)
+    | summarize transactions = count(), by: {app.payment.cardType, app.payment.currencyCode}
+    | sort transactions desc
     ```
 
-**Checkpoint:** `payment.result`, `payment.provider`, and `payment.amount` appear as attributes on new `paymentservice` records, and you can filter and aggregate on them from the Log Viewer without writing a parse expression.
+7. Navigate to a "Transaction complete." record and press `T` to open the correlated trace. Can you see the corresponding "Charge request received." log from the same span?
+
+**Checkpoint:** `app.payment.transactionId`, `app.payment.cardType`, `app.payment.currencyCode`, and `app.payment.loyaltyLevel` appear as attributes on new `payment` service records, and you can filter and aggregate on them from the Log Viewer without writing a parse expression.
