@@ -75,38 +75,36 @@ The `futureuse` columns are real PAN-OS padding fields. They are named so the po
 
 The most common failure is a header whose column count does not match the record. It is nasty because it looks like nothing happened at all.
 
-**Symptom.** Records arrive in Dynatrace as normal but carry no `pan.*` fields. Nothing errors in the Bindplane UI, the processor shows as healthy, and every downstream processor that reads `pan.action` silently stops doing anything.
+| | |
+|---|---|
+| **Symptom** | Records arrive in Dynatrace as normal but carry no `pan.*` fields. Nothing errors in the Bindplane UI, the processor shows healthy, and every downstream processor that reads `pan.action` silently stops working. |
+| **Cause** | Strict mode requires the header to name exactly as many columns as the record has. One too many or too few and the record is rejected and passed through unparsed. |
+| **Confirm** | `sudo grep "wrong number of fields" /opt/observiq-otel-collector/log/collector.log \| tail -3` |
+| **What you see** | `wrong number of fields: expected 37, found 38` |
+| **Correct count** | **38** for this lab's generator |
 
-**Cause.** The CSV parser in Strict mode requires the header to name exactly as many columns as the record contains. One name too many or too few and it rejects the whole record and passes it through unparsed.
-
-**Confirm it** in the collector log on the lab host:
-
-```bash
-sudo grep "wrong number of fields" /opt/observiq-otel-collector/log/collector.log | tail -3
-```
-
-The numbers tell you both sides of the problem:
-
-```
-wrong number of fields: expected 37, found 38
-```
-
-**Count the real fields** rather than trusting any documentation, including this page:
+Count the fields yourself rather than trusting any documentation, including this page:
 
 ```bash
 python3 -c "import sys, time; sys.path.insert(0, '.devcontainer/util'); import push_telemetry as p; print(len(p.ev_panos_traffic(time.time())[4].split(',')))"
 ```
 
-A TRAFFIC record from this lab's generator has **38** fields.
+Or count what actually reached Dynatrace, which also catches a record that changed in flight:
 
-!!! warning "Restart the generator after you change it"
-    The generator loads its code once at startup. If you edit `push_telemetry.py` the running process keeps emitting the old format, and the command above will disagree with what is actually on the wire. Run `stopNetworkTelemetry && startNetworkTelemetry` after any change. This has already caught people out: a generator started before the `packets` column was added kept sending 37 fields for hours while the file on disk said 38.
+```
+fetch logs
+| filter matchesPhrase(content, "TRAFFIC,end")
+| fieldsAdd field_count = arraySize(splitString(content, ","))
+| summarize count(), by: {field_count}
+```
 
-!!! warning "Do not fix a count mismatch by deleting a column name"
-    It is tempting to drop a name to make the numbers line up. That shifts every column after the deletion by one position, so the parse then succeeds while quietly putting the wrong values in the wrong fields. Deleting `elapsed` makes `packets` pick up the session duration, and the record looks perfectly healthy while reporting 1,476 packets for a session that actually ran 1,476 seconds. Add or remove the column at the position where the record really differs.
+### Three traps worth knowing
 
-!!! tip "Do not count fields with --dry-run"
-    `push_telemetry.py --dry-run` truncates each sample line to 150 characters for readability, so piping it into a field counter reports about 12 fields instead of 38. It is useful for eyeballing the format, not for counting it.
+| Trap | What happens |
+|---|---|
+| **Editing the generator without restarting it** | The process loads its code once at startup, so it keeps emitting the old format while the file on disk says otherwise. Run `stopNetworkTelemetry && startNetworkTelemetry` after any change. This has already caught people out: a generator started before the `packets` column was added kept sending 37 fields for hours. |
+| **Deleting a column name to fix a count mismatch** | The parse then *succeeds* while putting the wrong values in the wrong fields. Dropping `elapsed` makes `packets` pick up the session duration, so the record looks healthy while reporting 1,476 packets for a session that ran 1,476 seconds. Add or remove the column where the record really differs. |
+| **Counting fields with `--dry-run`** | It truncates each sample line to 150 characters for readability, so a field counter reports about 12 instead of 38. Useful for eyeballing the format, not for counting it. |
 
 ## Before and after at query time
 

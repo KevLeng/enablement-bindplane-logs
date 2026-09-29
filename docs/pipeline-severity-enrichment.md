@@ -70,16 +70,16 @@ logstransform/panos_severity:
 
 ## Measured result
 
-Tested against live generator output:
+Tested against live generator output.
 
-```
-  action=allow        severityText=INFO    severityNumber=9    n=414
-  action=deny         severityText=WARN    severityNumber=13   n=15
-  action=drop         severityText=WARN    severityNumber=13   n=10
-  action=reset-both   severityText=ERROR   severityNumber=17   n=10
-```
+| Action | severityText | severityNumber | Records |
+|---|---|---|---|
+| `allow` | INFO | 9 | 414 |
+| `deny` | WARN | 13 | 15 |
+| `drop` | WARN | 13 | 10 |
+| `reset-both` | ERROR | 17 | 10 |
 
-Severity numbers 9, 13 and 17 are the OpenTelemetry values for INFO, WARN and ERROR. Every record was reclassified and none was left at the original misleading INFO.
+Severity numbers 9, 13 and 17 are the OpenTelemetry values for INFO, WARN and ERROR. Every record was reclassified, and none was left at the original misleading INFO.
 
 ## Lab exercise
 

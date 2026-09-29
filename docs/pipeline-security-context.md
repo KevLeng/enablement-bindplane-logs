@@ -43,24 +43,24 @@ Records that are not PAN-OS TRAFFIC match neither condition and keep `default-un
 
 ## Measured result
 
-```
-  action=allow        network-operational    n=91
-  action=deny         security-events        n=24
-  action=drop         security-events        n=30
-  action=reset-both   security-events        n=27
-```
+| Action | `dt.security_context` | Records |
+|---|---|---|
+| `allow` | `network-operational` | 91 |
+| `deny` | `security-events` | 24 |
+| `drop` | `security-events` | 30 |
+| `reset-both` | `security-events` | 27 |
 
 Every record was classified, and the split follows the action field exactly.
 
 ## Why this matters for APRA CPS 234
 
-CPS 234 requires an APRA regulated entity to classify its information assets by criticality and sensitivity, and to size its information security controls to that classification. Two obligations are relevant here.
+CPS 234 requires an APRA regulated entity to classify its information assets by criticality and sensitivity, and to size its information security controls to that classification. Two obligations are relevant:
 
-The first is classification itself. An auditor asking how firewall telemetry is classified needs a better answer than "it is all in the log store". A pipeline rule that assigns security context from the firewall action is a documented, testable control. You can show the config, show the mapping table, and show sample records carrying the resulting tag.
+- **Classification itself.** An auditor asking how firewall telemetry is classified needs a better answer than "it is all in the log store". A pipeline rule that assigns security context from the firewall action is a documented, testable control. You can show the config, the mapping table, and sample records carrying the tag.
+- **Access proportionate to sensitivity.** Once denied traffic carries `security-events`, a Grail ABAC policy can scope who reads it, enforced by the platform rather than by convention. The evidence trail is short: the pipeline sets the tag, the policy references the tag, the record shows the tag.
 
-The second is controlling access in proportion to sensitivity. Once denied traffic carries `security-events`, a Grail ABAC policy can scope who reads it, and that scoping is enforced by the platform rather than by convention. The evidence trail is straightforward: the pipeline sets the tag, the policy references the tag, and the record shows the tag.
-
-This is a control contribution, not compliance on its own. CPS 234 covers a great deal more, including incident response and testing obligations. Present it as one concrete piece of the classification requirement and do not oversell it.
+!!! warning "Do not oversell this"
+    It is a control contribution, not compliance on its own. CPS 234 covers a great deal more, including incident response and testing obligations. Present it as one concrete piece of the classification requirement.
 
 ## Lab exercise
 

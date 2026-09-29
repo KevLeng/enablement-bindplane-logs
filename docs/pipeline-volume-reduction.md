@@ -40,32 +40,33 @@ sampling/panos_allow:
 
 ## Measured result
 
-Tested against live generator output with the processor in place:
+Tested against live generator output with the processor in place.
 
-```
-                 records      raw bytes
-  before             561         171327
-  after               94          27950
-  reduction          84%            84%
+| | Records | Raw bytes |
+|---|---|---|
+| Before | 561 | 171,327 |
+| After | 94 | 27,950 |
+| **Reduction** | **84%** | **84%** |
 
-  action        before   after    kept
-  allow            517      50      9%
-  deny              22      22    100%
-  drop              11      11    100%
-  reset-both        11      11    100%
-```
+| Action | Before | After | Kept |
+|---|---|---|---|
+| `allow` | 517 | 50 | 9% |
+| `deny` | 22 | 22 | **100%** |
+| `drop` | 11 | 11 | **100%** |
+| `reset-both` | 11 | 11 | **100%** |
 
-Every denied session survived. Allow traffic came down to roughly a tenth. Total volume fell by 84 percent.
+Every denied session survived. Allow traffic came down to roughly a tenth.
+
+!!! note "84 percent of what"
+    That figure is the reduction on the **PAN-OS records only**. Your overall saving depends on what share of total volume the firewall represents. In this lab it sits alongside file logs, NetFlow and collector self-monitoring, so the whole-pipeline figure is lower, which is why the lab objectives quote a more conservative number. When you size this for a customer, apply the ratio to their firewall volume rather than their total.
 
 ## Why firewall logs for this
 
-It is fair to ask whether this dataset makes the exercise harder than it needs to be. For volume reduction it is the opposite: firewall traffic is the textbook case, and for three reasons.
+It is fair to ask whether this dataset makes the exercise harder than it needs to be. For volume reduction it is the opposite. Firewall traffic is the textbook case:
 
-The volume is genuinely there. Firewall session logs are usually the largest single log source in an enterprise, so the saving is material rather than academic.
-
-The keep-or-drop signal is unambiguous and lives in one field. You are not writing heuristics about what looks interesting, you are reading the action the firewall already decided on. That makes the rule easy to explain and easy to defend.
-
-The 92 to 8 split is realistic. Customers recognise their own environment in it, which is what makes the cost conversation land.
+- **The volume is genuinely there.** Firewall session logs are usually the largest single log source in an enterprise, so the saving is material rather than academic.
+- **The keep-or-drop signal is one field.** You are not writing heuristics about what looks interesting, you are reading the action the firewall already decided on. That makes the rule easy to explain and easy to defend.
+- **The 92 to 8 split is realistic.** Customers recognise their own environment in it, which is what makes the cost conversation land.
 
 The awkward part of this dataset was never the reduction, it was the positional CSV. The Parse CSV processor handles that from the UI, so the difficulty disappears.
 
