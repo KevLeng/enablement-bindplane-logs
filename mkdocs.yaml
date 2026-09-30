@@ -22,5 +22,9 @@ nav:
   - "11. Extracting Metrics from Logs": 8-metric-extraction.md
   - "12. Quick Reference": 10-quick-reference.md
 
+extra_css:
+  - stylesheets/extra.css
+  - stylesheets/hs-video.css
+
 extra:
   rum_snippet: "https://js-cdn.dynatrace.com/jstag/1612cf70810/bf81393wlb/7c50bce5c0cc890f_complete.js"

@@ -87,11 +87,15 @@ Copy the install command from Bindplane, run it in the container terminal, confi
   <a href="../img/3-bindplane-agent/get_agent_installation_command.mp4">Download the video</a> instead.
 </video>
 
+[hs-video](https://dt-arr.github.io/enablement-bindplane-logs/img/3-bindplane-agent/get_agent_installation_command.mp4|Get the agent installation command|Navigating Bindplane to generate the Linux agent install command.)
+
 <video controls muted playsinline preload="metadata" style="width:100%; max-width:100%; height:auto;">
   <source src="../img/3-bindplane-agent/terminal-installation.mp4" type="video/mp4">
   Your browser does not support embedded video.
   <a href="../img/3-bindplane-agent/terminal-installation.mp4">Download the video</a> instead.
 </video>
+
+[hs-video](https://dt-arr.github.io/enablement-bindplane-logs/img/3-bindplane-agent/terminal-installation.mp4|Install the Bindplane agent|Running the install command in the dev container terminal.)
 
 ![Collector reported in](img/3-bindplane-agent/reported-collector.png)
 

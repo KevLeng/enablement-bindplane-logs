@@ -20,6 +20,8 @@ Add a processor to your Syslog source, search for **CSV**, and choose **Parse CS
   <a href="../img/pipeline-field-extraction/pan-os-csv-parsing.mp4">Download the video</a> instead.
 </video>
 
+[hs-video](https://dt-arr.github.io/enablement-bindplane-logs/img/pipeline-field-extraction/pan-os-csv-parsing.mp4|Parse the PAN-OS CSV|Configuring the Parse CSV processor on the Syslog source.)
+
 The same steps are written out below.
 
 ### Condition

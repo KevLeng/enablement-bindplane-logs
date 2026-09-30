@@ -27,6 +27,8 @@ Choose a descriptive name for your configuration, choose **Linux** for the platf
   <a href="../img/4-bindplane-configuration/add-sources-video.mp4">Download the video</a> instead.
 </video>
 
+[hs-video](https://dt-arr.github.io/enablement-bindplane-logs/img/4-bindplane-configuration/add-sources-video.mp4|Add all four sources|Adding the File, Syslog, NetFlow and Bindplane Collector sources to the configuration.)
+
 The same four sources are broken down step by step below.
 
 ### 2. Add the File source

@@ -1,0 +1,11 @@
+/* Dynatrace enablement apps consume `[hs-video](url|Title|Description)` links to
+   render an in-app player. MkDocs has no such convention: it renders the same
+   markdown as a literal "hs-video" anchor whose href carries the title and
+   description, so it 404s if a reader clicks it.
+
+   The <video> element next to each link is what serves readers on GitHub Pages,
+   so hide the link here. display:none keeps the anchor in the DOM, so anything
+   parsing the markdown source or the rendered HTML still finds it. */
+a[href*=".mp4|"] {
+  display: none;
+}
