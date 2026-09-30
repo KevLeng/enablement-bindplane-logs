@@ -1,6 +1,336 @@
 # Quick Reference
 
-The whole lab on one page: what the environment looks like, and every setting you need in order. Use this to build the pipeline quickly, or to check your work. Each step links back to the full explanation.
+Every value you type, paste or search for in this lab, in the order you need it. Each step links to its full walkthrough. All videos and screenshots are collected under [Walkthroughs](#walkthroughs) at the bottom.
+
+## Before you start
+
+Your Dynatrace platform token needs these four scopes:
+
+```
+storage:logs:write
+openpipeline:logs:ingest
+storage:metrics:write
+openpipeline:metrics:ingest
+```
+
+Both log generators start automatically in the container. You do **not** need to start them.
+
+| Command | Purpose |
+|---|---|
+| `startBindplane` / `stopBindplane` | The collector process |
+| `startLogGenerator` / `stopLogGenerator` | Linux host logs written to `/var/log` |
+| `startNetworkTelemetry` / `stopNetworkTelemetry` | Syslog on udp/5140, NetFlow on udp/2055 |
+
+---
+
+## 1. Install the agent &mdash; [details](3-bindplane-agent.md)
+
+Copy the install command from Bindplane, paste it into the container terminal, then start the collector:
+
+```
+startBindplane
+```
+
+Do **not** use `systemctl`, whatever the installer prints.
+
+---
+
+## 2. Create the configuration &mdash; [details](4-bindplane-configuration.md)
+
+Platform **Linux**. Four sources, one destination. **Start Rollout** when done.
+
+### File source
+
+Short Description:
+
+```
+file
+```
+
+File Paths:
+
+```
+/var/log/syslog
+/var/log/audit/audit.log
+/var/log/fail2ban.log
+```
+
+Log Type `file` &middot; Multiline Parsing `none`
+
+!!! danger "Only those three files"
+    `auth.log`, `kern.log` and `cron.log` are duplicates of what is already in `syslog` &mdash; 41% of total volume, entirely redundant. `audit/audit.log` and `fail2ban.log` are not duplicates, and the audit log carries the leaked credentials.
+
+### Syslog source
+
+Short Description:
+
+```
+syslog
+```
+
+Listening IP Address:
+
+```
+0.0.0.0
+```
+
+Listening Port:
+
+```
+5140
+```
+
+Protocol `rfc3164` &middot; Transport `udp` &middot; Data Flow `high` &middot; Timezone `UTC` &middot; Parse To `body` &middot; Multiline Parsing `none`
+
+!!! warning "Two picks that matter later"
+    **Protocol** must be `rfc3164`, not 5424. **Parse To** must be `body`, or the Parse CSV processor in step 4 finds nothing.
+
+### NetFlow source
+
+Short Description:
+
+```
+Netflow
+```
+
+Hostname:
+
+```
+0.0.0.0
+```
+
+Port:
+
+```
+2055
+```
+
+Telemetry Type `LOGS` &middot; Scheme `netflow` &middot; Sockets `1` &middot; Workers `1` &middot; Send Raw unchecked
+
+### Bindplane Collector source
+
+Don't change any values. Just accept the defaults.
+
+### Dynatrace destination
+
+Your environment ID, plus the token from [Before you start](#before-you-start).
+
+---
+
+## 3. Add a field &mdash; [details](5-add-field.md)
+
+**Add Fields** transform processor on the Syslog source.
+
+Short Description:
+
+```
+Add Project Name
+```
+
+Field name:
+
+```
+project
+```
+
+Field value:
+
+```
+bindplane-logs-lab
+```
+
+This becomes the OpenPipeline routing key in step 6.
+
+---
+
+## 4. Parse the PAN-OS CSV &mdash; [details](pipeline-field-extraction.md)
+
+**Parse CSV** processor on the Syslog source. Telemetry type **LOGS**.
+
+Condition &mdash; two rows joined with **AND**, both matching on **Body**. Field `appname` **Equals**:
+
+```
+PAN-OS
+```
+
+Field `message` **Contains**:
+
+```
+,TRAFFIC,end,
+```
+
+Fields &mdash; Source Field Type **Body** &middot; Source Field `message` &middot; Target Field Type **Body** &middot; Target Field `pan` &middot; Header Field Type **Static String** &middot; Delimiter `,` &middot; Header Delimiter empty &middot; Mode **Strict**
+
+Headers, all 38:
+
+```
+futureuse1,futureuse2,receive_time,serial_number,type,subtype,futureuse3,generate_time,src_ip,dst_ip,nat_src_ip,nat_dst_ip,rule_name,src_user,dst_user,app,vsys,src_zone,dst_zone,inbound_if,outbound_if,log_action,futureuse4,session_id,repeat_cnt,src_port,dst_port,nat_src_port,nat_dst_port,flags,protocol,action,bytes,bytes_sent,bytes_received,packets,elapsed,session_end_reason
+```
+
+!!! danger "Two settings that will bite you"
+    Source Field Type is **Body**, not Attributes &mdash; the Syslog source moves `appname` and `message` into the body. And always set the Condition, or the JSON records on the same port flood the log with CSV parse errors.
+
+---
+
+## 5. Reduce volume &mdash; [details](pipeline-volume-reduction.md)
+
+**Sample Logs** processor, placed **after** Parse CSV.
+
+Condition &mdash; Match **Body**, Field `pan["action"]`, Operator **Equals**, String:
+
+```
+allow
+```
+
+Drop Ratio:
+
+```
+0.9
+```
+
+---
+
+## 6. Parse with OpenPipeline &mdash; [details](6-parsing-with-openpipeline.md)
+
+New logs pipeline, add the **Syslog** technology bundle.
+
+Processor condition, replacing the bundle's default:
+
+```
+matchesValue(log.file.name, "syslog")
+```
+
+Dynamic route condition:
+
+```
+matchesValue(project, "bindplane-logs-lab")
+```
+
+---
+
+## 7. Monitor collector health &mdash; [details](9-bindplane-health.md)
+
+**Bindplane Agent** source with metrics **and** logs, linked to the Dynatrace destination. Add a **Custom** processor covering both signals:
+
+```yaml
+cumulativetodelta: {}
+```
+
+Then upload the dashboard from the repo's `Dashboards` folder.
+
+---
+
+## 8. Mask and route &mdash; [details](7-masking-routing.md)
+
+**Routing** connector with two routes, evaluated top down, first match wins.
+
+Route 1 name:
+
+```
+bch-credentials
+```
+
+Route 1 condition &mdash; Log &rarr; `body` &rarr; **Matches**:
+
+```
+BCH_ACCESS_KEY_ID=|BCH_SECRET_ACCESS_KEY=
+```
+
+The same condition written as OTTL:
+
+```
+IsMatch(body, "BCH_ACCESS_KEY_ID=|BCH_SECRET_ACCESS_KEY=")
+```
+
+Route 2 name, with no condition:
+
+```
+default
+```
+
+On the `bch-credentials` route add **Redact Sensitive Data**: strategy **Hashing**, uncheck Redaction Rule Presets, then two custom rules.
+
+Access key:
+
+```
+BCHK[A-Z0-9]{16}
+```
+
+Secret access key:
+
+```
+[A-Za-z0-9/+]{40}
+```
+
+Then wire the `default` route around the redaction node, into the processor that feeds Dynatrace.
+
+---
+
+## 9. Extract a metric &mdash; [details](8-metric-extraction.md)
+
+**Parse with Regex**, placed **after** the redaction processor so it parses the hashed value:
+
+```
+BCH_ACCESS_KEY_ID=(?<bch_access_key_id>\w+)
+```
+
+Target Field Type **Attribute**, target field blank.
+
+Then a **Signal to Metric** connector. Metric name:
+
+```
+log.exposed_bch_credentials.count
+```
+
+Metric Type **Sum**, value `1`. Dimension:
+
+```
+bch_access_key_id
+```
+
+---
+
+## Verify
+
+Every config change needs a **Rollout** before it takes effect.
+
+Is data reaching the collector? Per-source counts, so you can see which source is stuck:
+
+```bash
+curl -s localhost:8888/metrics | grep throughputmeasurement_log_count
+```
+
+Are the files being written?
+
+```bash
+tail -f /var/log/syslog
+```
+
+Are the logs in Dynatrace?
+
+```
+fetch logs | filter log.file.name == "syslog" | sort timestamp desc | limit 50
+```
+
+What is the PAN-OS action mix? Run it before and after step 5 to prove the denies survived:
+
+```
+fetch logs | filter isNotNull(pan.action) | summarize count(), by: {pan.action}
+```
+
+Is the metric being ingested?
+
+```
+metrics | filter matchesPhrase(metric.key, "bch")
+```
+
+How many sets of credentials were exposed?
+
+```
+timeseries total = sum(log.exposed_bch_credentials.count), by: {bch_access_key_id}
+```
+
+---
 
 ## Architecture
 
@@ -26,6 +356,8 @@ The whole lab on one page: what the environment looks like, and every setting yo
           |        BINDPLANE COLLECTOR          |
           |  Sources  ->  Processors            |
           |    - Add Fields   project           |
+          |    - Parse CSV    pan.*             |
+          |    - Sample Logs  allow 0.9         |
           |    - Router       bch-credentials   |
           |    - Redact       hashing           |
           +------------------+------------------+
@@ -44,160 +376,13 @@ The whole lab on one page: what the environment looks like, and every setting yo
         Logs app  .  Notebooks (DQL)  .  Bindplane health dashboard
 ```
 
-## What the container already does for you
-
-Both generators start automatically. You do **not** need to start them.
-
-| Command | Purpose |
-|---|---|
-| `startLogGenerator` / `stopLogGenerator` | Linux host logs written to `/var/log` |
-| `startNetworkTelemetry` / `stopNetworkTelemetry` | Syslog on udp/5140, NetFlow on udp/2055 |
-| `startBindplane` / `stopBindplane` | The collector process |
-
-## Sources to create
-
-Collect these three files, and **only** these three:
-
-| Source type | Setting | Contains |
-|---|---|---|
-| **File** | `/var/log/syslog` | Everything rsyslog receives, RFC 5424 |
-| **File** | `/var/log/audit/audit.log` | auditd &mdash; **including the leaked credentials**. Not syslog format |
-| **File** | `/var/log/fail2ban.log` | Bans. Not syslog format |
-| **Syslog** | UDP port `5140`, **RFC 3164** | PAN-OS, Azure NSG, Citrix, AVD, HAProxy |
-| **NetFlow** | UDP port `2055` | NetFlow v5 flow records |
-| **Bindplane Agent** | metrics **and** logs | Collector self-monitoring |
-
-!!! danger "Do not collect auth.log, kern.log or cron.log"
-    rsyslog writes every `auth`, `kern` and `cron` record to **two** places: the facility file *and* `/var/log/syslog`. Collecting both ingests the same event twice, in two formats. On a measured run those three files were 589,497 of 1,420,526 bytes &mdash; **41% of total volume, entirely duplicate**. Dropping them costs you nothing.
-
-    `audit/audit.log` and `fail2ban.log` are *not* duplicates. auditd and fail2ban write their own files and never pass through rsyslog, so their content appears nowhere else. Collect all three, and you still get the full 41% saving.
-
-!!! warning "Ports and format"
-    `5140` and `2055` are the Bindplane defaults and the generator's defaults, so leave them alone. Choose **RFC 3164**, not 5424 -- the UDP generator emits BSD-format records.
-
-## Steps
-
-### 1. Install the agent &mdash; [details](3-bindplane-agent.md)
-
-Copy the install command from Bindplane, run it in the container terminal, confirm the agent appears.
-
-<video controls muted playsinline preload="metadata" style="width:100%; max-width:100%; height:auto;">
-  <source src="../img/3-bindplane-agent/get_agent_installation_command.mp4" type="video/mp4">
-  Your browser does not support embedded video.
-  <a href="../img/3-bindplane-agent/get_agent_installation_command.mp4">Download the video</a> instead.
-</video>
-
-[hs-video](https://dt-arr.github.io/enablement-bindplane-logs/img/3-bindplane-agent/get_agent_installation_command.mp4|Get the agent installation command|Navigating Bindplane to generate the Linux agent install command.)
-
-<video controls muted playsinline preload="metadata" style="width:100%; max-width:100%; height:auto;">
-  <source src="../img/3-bindplane-agent/terminal-installation.mp4" type="video/mp4">
-  Your browser does not support embedded video.
-  <a href="../img/3-bindplane-agent/terminal-installation.mp4">Download the video</a> instead.
-</video>
-
-[hs-video](https://dt-arr.github.io/enablement-bindplane-logs/img/3-bindplane-agent/terminal-installation.mp4|Install the Bindplane agent|Running the install command in the dev container terminal.)
-
-![Collector reported in](img/3-bindplane-agent/reported-collector.png)
-
-### 2. Create the configuration &mdash; [details](4-bindplane-configuration.md)
-
-Platform **Linux**. Add the three File sources from the table above, then the **Dynatrace** destination (environment ID + the token with `logs.ingest` and `metrics.ingest`). Assign the agent, then **Rollout**.
-
-### 3. Add a field &mdash; [details](5-add-field.md)
-
-**Add Fields** transform processor: field `project`, value `bindplane-logs-lab`. This becomes the OpenPipeline routing key. Preview, then **Rollout**.
-
-### 4. Parse with OpenPipeline &mdash; [details](6-parsing-with-openpipeline.md)
-
-1. New logs pipeline, add the **Syslog** technology bundle.
-2. The bundle's default condition will not match. Replace it with:
-   ```
-   matchesValue(log.file.name, "syslog")
-   ```
-   `log.source` is a Dynatrace syslog-extension field; these logs arrive via Bindplane's filelog receiver instead.
-3. Dynamic route to that pipeline:
-   ```
-   matchesValue(project, "bindplane-logs-lab")
-   ```
-
-### 5. Mask and route &mdash; [details](7-masking-routing.md)
-
-Router with two routes:
-
-| Route | Condition |
-|---|---|
-| `bch-credentials` | Log &rarr; `body` &rarr; Matches &rarr; `BCH_ACCESS_KEY_ID=\|BCH_SECRET_ACCESS_KEY=` |
-| `default` | no condition |
-
-On the `bch-credentials` route add **Redact Sensitive Data**: strategy **Hashing**, uncheck Redaction Rule Presets, two custom rules:
-
-```
-BCHK[A-Z0-9]{16}
-[A-Za-z0-9/+]{40}
-```
-
-### 6. Extract a metric &mdash; [details](8-metric-extraction.md)
-
-**Parse with Regex**, placed *after* the redaction processor so it parses the hashed value:
-
-```
-BCH_ACCESS_KEY_ID=(?<bch_access_key_id>\w+)
-```
-
-Target Field Type **Attribute**, target field blank. Then create metric `log.exposed_bch_credentials.count`, type **Sum**, value `1`, dimension `bch_access_key_id`.
-
-### 7. Pipeline use cases on the PAN-OS stream
-
-Both run on the Syslog source and are covered in full on their own pages. Both are built-in Bindplane processors configured from the UI, no custom code. Order matters: Parse CSV must come first, because Sampling reads the attributes it sets.
-
-| Order | Bindplane processor | Purpose | Page |
-|---|---|---|---|
-| 1 | **Parse CSV** | CSV to named `pan.*` fields, 38-column header | [details](pipeline-field-extraction.md) |
-| 2 | **Sampling** | Drop 90% of allows, keep all denies. 84% measured | [details](pipeline-volume-reduction.md) |
-
-<!-- Hidden along with their pages, not part of the current lab run:
-| 3 | **Severity** | allow INFO, deny/drop WARN, reset-both ERROR | [details](pipeline-severity-enrichment.md) |
-| 4 | **Add Fields** x2 | `network-operational` vs `security-events` | [details](pipeline-security-context.md) |
--->
-
-!!! danger "Two settings that will bite you"
-    Source Field Type is **Body**, Source Field is `message`. The Bindplane Syslog source moves `appname`, `message` and `hostname` out of attributes into the body, so a processor pointed at attributes finds nothing. And always set the Condition, or the JSON records from Citrix and NSG on the same port will flood the log with CSV parse errors.
-
-### 8. Monitor collector health &mdash; [details](9-bindplane-health.md)
-
-Add the **Bindplane Agent** source (metrics + logs), link it to the Dynatrace destination, and add a **Custom** processor covering both signals:
-
-```yaml
-cumulativetodelta: {}
-```
-
-Upload the dashboard from the repo's `Dashboards` folder.
-
-## Verify
-
-Every config change needs a **Rollout** before it takes effect.
-
-**Is data reaching the collector?** Per-source counts, so you can see exactly which source is stuck:
-
-```bash
-curl -s localhost:8888/metrics | grep throughputmeasurement_log_count
-```
-
-**Are the files being written?**
-
-```bash
-tail -f /var/log/syslog
-```
-
-**Is it in Dynatrace?**
-
-```
-fetch logs | filter log.file.name == "syslog" | sort timestamp desc | limit 50
-```
-
 ## Security scenarios
 
-`generate_logs.py` injects deliberate incidents alongside realistic background noise. The default set is `leak_bch_key,brute_force,recon,data_exfil`; run `python3 .devcontainer/util/generate_logs.py --list-scenarios` for all ten.
+`generate_logs.py` injects deliberate incidents alongside realistic background noise. The default set is `leak_bch_key,brute_force,recon,data_exfil`. To list all ten:
+
+```bash
+python3 .devcontainer/util/generate_logs.py --list-scenarios
+```
 
 | Scenario | Signature | Where |
 |---|---|---|
@@ -207,4 +392,54 @@ fetch logs | filter log.file.name == "syslog" | sort timestamp desc | limit 50
 | `leak_bch_key` | `BCH_ACCESS_KEY_ID=` in an auditd EXECVE record | `audit/audit.log` only |
 
 !!! tip "Signal versus noise"
-    Failed logins and UFW blocks also occur as ordinary background noise, spread thinly across many `203.0.113.x` addresses. The scenarios differ by being *concentrated* on a single known-bad IP. A detection that counts `Failed password` drowns in the noise; one that groups by source IP finds the incident.
+    Failed logins and UFW blocks also occur as ordinary background noise, spread thinly across many `203.0.113.x` addresses. The scenarios differ by being *concentrated* on a single known-bad IP.
+
+---
+
+## Walkthroughs
+
+Screen recordings for the steps above. Each step's own page carries the full set of screenshots.
+
+### Getting the agent installation command
+
+<video controls muted playsinline preload="metadata" style="width:100%; max-width:100%; height:auto;">
+  <source src="../img/3-bindplane-agent/get_agent_installation_command.mp4" type="video/mp4">
+  Your browser does not support embedded video.
+  <a href="../img/3-bindplane-agent/get_agent_installation_command.mp4">Download the video</a> instead.
+</video>
+
+[hs-video](https://dt-arr.github.io/enablement-bindplane-logs/img/3-bindplane-agent/get_agent_installation_command.mp4|Get the agent installation command|Navigating Bindplane to generate the Linux agent install command.)
+
+### Installing the agent in the terminal
+
+<video controls muted playsinline preload="metadata" style="width:100%; max-width:100%; height:auto;">
+  <source src="../img/3-bindplane-agent/terminal-installation.mp4" type="video/mp4">
+  Your browser does not support embedded video.
+  <a href="../img/3-bindplane-agent/terminal-installation.mp4">Download the video</a> instead.
+</video>
+
+[hs-video](https://dt-arr.github.io/enablement-bindplane-logs/img/3-bindplane-agent/terminal-installation.mp4|Install the Bindplane agent|Running the install command in the dev container terminal.)
+
+The collector reporting in once it starts:
+
+![Collector reported in](img/3-bindplane-agent/reported-collector.png)
+
+### Adding all four sources
+
+<video controls muted playsinline preload="metadata" style="width:100%; max-width:100%; height:auto;">
+  <source src="../img/4-bindplane-configuration/add-sources-video.mp4" type="video/mp4">
+  Your browser does not support embedded video.
+  <a href="../img/4-bindplane-configuration/add-sources-video.mp4">Download the video</a> instead.
+</video>
+
+[hs-video](https://dt-arr.github.io/enablement-bindplane-logs/img/4-bindplane-configuration/add-sources-video.mp4|Add all four sources|Adding the File, Syslog, NetFlow and Bindplane Collector sources to the configuration.)
+
+### Parsing the PAN-OS CSV
+
+<video controls muted playsinline preload="metadata" style="width:100%; max-width:100%; height:auto;">
+  <source src="../img/pipeline-field-extraction/pan-os-csv-parsing.mp4" type="video/mp4">
+  Your browser does not support embedded video.
+  <a href="../img/pipeline-field-extraction/pan-os-csv-parsing.mp4">Download the video</a> instead.
+</video>
+
+[hs-video](https://dt-arr.github.io/enablement-bindplane-logs/img/pipeline-field-extraction/pan-os-csv-parsing.mp4|Parse the PAN-OS CSV|Configuring the Parse CSV processor on the Syslog source.)
