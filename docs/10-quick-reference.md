@@ -47,15 +47,23 @@ Short Description:
 file
 ```
 
-File Paths:
+File Paths &mdash; add each one as its own entry:
 
 ```
 /var/log/syslog
+```
+
+```
 /var/log/audit/audit.log
+```
+
+```
 /var/log/fail2ban.log
 ```
 
-Log Type `file` &middot; Multiline Parsing `none`
+Log Type &mdash; `file`
+
+Multiline Parsing &mdash; `none`
 
 !!! danger "Only those three files"
     `auth.log`, `kern.log` and `cron.log` are duplicates of what is already in `syslog` &mdash; 41% of total volume, entirely redundant. `audit/audit.log` and `fail2ban.log` are not duplicates, and the audit log carries the leaked credentials.
@@ -80,7 +88,17 @@ Listening Port:
 5140
 ```
 
-Protocol `rfc3164` &middot; Transport `udp` &middot; Data Flow `high` &middot; Timezone `UTC` &middot; Parse To `body` &middot; Multiline Parsing `none`
+Protocol &mdash; `rfc3164`
+
+Transport Protocol &mdash; `udp`
+
+Data Flow &mdash; `high`
+
+Timezone &mdash; `UTC`
+
+Parse To &mdash; `body`
+
+Multiline Parsing &mdash; `none`
 
 !!! warning "Two picks that matter later"
     **Protocol** must be `rfc3164`, not 5424. **Parse To** must be `body`, or the Parse CSV processor in step 4 finds nothing.
@@ -105,7 +123,15 @@ Port:
 2055
 ```
 
-Telemetry Type `LOGS` &middot; Scheme `netflow` &middot; Sockets `1` &middot; Workers `1` &middot; Send Raw unchecked
+Telemetry Type &mdash; `LOGS`
+
+Scheme &mdash; `netflow`
+
+Sockets &mdash; `1`
+
+Workers &mdash; `1`
+
+Send Raw &mdash; unchecked
 
 ### Bindplane Collector source
 
@@ -136,7 +162,7 @@ project
 Field value:
 
 ```
-bindplane-logs-lab
+TonyStark
 ```
 
 This becomes the OpenPipeline routing key in step 6.
@@ -159,9 +185,37 @@ Field `message` **Contains**:
 ,TRAFFIC,end,
 ```
 
-Fields &mdash; Source Field Type **Body** &middot; Source Field `message` &middot; Target Field Type **Body** &middot; Target Field `pan` &middot; Header Field Type **Static String** &middot; Delimiter `,` &middot; Header Delimiter empty &middot; Mode **Strict**
+### Fields
 
-Headers, all 38:
+Source Field Type &mdash; **Body**
+
+Source Field:
+
+```
+message
+```
+
+Target Field Type &mdash; **Body**
+
+Target Field:
+
+```
+pan
+```
+
+Header Field Type &mdash; **Static String**
+
+Delimiter:
+
+```
+,
+```
+
+Header Delimiter &mdash; leave empty
+
+Mode &mdash; **Strict**
+
+### Headers, all 38
 
 ```
 futureuse1,futureuse2,receive_time,serial_number,type,subtype,futureuse3,generate_time,src_ip,dst_ip,nat_src_ip,nat_dst_ip,rule_name,src_user,dst_user,app,vsys,src_zone,dst_zone,inbound_if,outbound_if,log_action,futureuse4,session_id,repeat_cnt,src_port,dst_port,nat_src_port,nat_dst_port,flags,protocol,action,bytes,bytes_sent,bytes_received,packets,elapsed,session_end_reason
@@ -203,7 +257,7 @@ matchesValue(log.file.name, "syslog")
 Dynamic route condition:
 
 ```
-matchesValue(project, "bindplane-logs-lab")
+matchesValue(project, "TonyStark")
 ```
 
 ---
@@ -367,7 +421,7 @@ timeseries total = sum(log.exposed_bch_credentials.count), by: {bch_access_key_i
   =========
 
         OpenPipeline
-          dynamic route   matchesValue(project, "bindplane-logs-lab")
+          dynamic route   matchesValue(project, "TonyStark")
             `- Syslog technology bundle pipeline
                  processor  matchesValue(log.file.name, "syslog")
                  metric     log.exposed_bch_credentials.count
