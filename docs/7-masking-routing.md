@@ -60,6 +60,18 @@ Our strategy for redaction will be:
 
 ![Redaction Settings](img/7-masking-routing/2-redaction-settings.png)
 
+Access key:
+
+```
+BCHK[A-Z0-9]{16}
+```
+
+Secret access key:
+
+```
+[A-Za-z0-9/+]{40}
+```
+
 Success!!!  Our sensitive credentials have been replaced with hashed strings, and the rest of our log message remains intact, so we can still work with them in full detail.
 
 ![Redacted Credentials](img/7-masking-routing/2-redacted-credentials.png)
