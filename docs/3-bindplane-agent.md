@@ -10,6 +10,8 @@ Once the agent is running and visible in the Bindplane UI, you're ready to tell 
   <a href="../img/3-bindplane-agent/get_agent_installation_command.mp4">Download the video</a> instead.
 </video>
 
+[hs-video](https://dt-arr.github.io/enablement-bindplane-logs/img/3-bindplane-agent/get_agent_installation_command.mp4|Get the agent installation command|Navigating Bindplane to generate the Linux agent install command.)
+
 The written steps below follow the same flow.
 
 ### 1. Navigate to your Bindplane account
@@ -37,6 +39,8 @@ You should see some text scroll by, and a message indicating that the Bindplane 
   Your browser does not support embedded video.
   <a href="../img/3-bindplane-agent/terminal-installation.mp4">Download the video</a> instead.
 </video>
+
+[hs-video](https://dt-arr.github.io/enablement-bindplane-logs/img/3-bindplane-agent/terminal-installation.mp4|Install the Bindplane agent|Running the install command in the dev container terminal.)
 
 <!-- ![Terminal](img/3-bindplane-agent/terminal.png) -->
 
