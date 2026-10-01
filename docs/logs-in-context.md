@@ -2,17 +2,33 @@
 
 ## The problem
 
-A microservices application like astroshop handles a single user request by calling half a dozen services in sequence. Each service logs what it did, but the logs land in separate pods, separate namespaces, and separate streams. When something goes wrong, the question is always the same: which logs belong to the request that failed?
+A microservices application like astroshop handles a single user request by calling half a dozen services in sequence. Each service logs what it did, but the logs land in separate pods, separate namespaces, and separate streams. When something goes wrong, you face two compounding problems:
 
-Without coordination, the only tool you have is timestamps. You filter by time, guess which pod was involved, and hope the error message is specific enough to narrow it down. On a busy cluster, a narrow time window still returns hundreds of candidates.
+1. **Where are the logs?** You know something failed, but not which pod, workload, or namespace was involved. You filter by time and guess.
+2. **Which logs belong together?** Even once you find one relevant log, the request touched five other services. Their logs are in completely separate streams with no shared identifier.
 
-**Logs in context** solves this by embedding the distributed trace identifier directly in every log line. Every log written during a request carries the `trace_id` and `span_id` of the span active at the time. Dynatrace uses this to stitch logs together automatically—across services, pods, and namespaces—without any manual query or join.
+Without coordination, the only tool you have is timestamps — and on a busy cluster, a narrow time window still returns hundreds of candidates.
+
+**Logs in context** solves both problems. Dynatrace automatically enriches every log record at ingest time with two layers of context:
+
+- **Entity context** — every log is tagged with the Kubernetes cluster, namespace, pod, workload, and host it came from, as well as the Dynatrace service entity. This makes logs searchable and navigable by infrastructure entity without any manual tagging.
+- **Trace context** — every log written during an instrumented request carries the `trace_id` and `span_id` of the active span. Dynatrace uses this to stitch logs together across services, pods, and namespaces for a single request — and to link directly from a log to the distributed trace, or from a trace to every log it produced.
 
 ## How it works with astroshop
 
 [Astroshop](https://opentelemetry.io/docs/demo/) is the OpenTelemetry community's reference demo application: a microservices e-commerce platform where every service is instrumented with the OpenTelemetry SDK. The SDK's log bridge automatically injects `trace_id` and `span_id` into log records at emit time. No application code changes are required.
 
-The services write structured JSON logs to stdout. The **Dynatrace Kubernetes Operator** deploys OneAgent as a DaemonSet, which automatically discovers every pod on the node and collects its container logs. OneAgent parses `trace_id` and `span_id` from the JSON body and stores them as first-class attributes—making the correlation available everywhere in Dynatrace without any manual pipeline configuration.
+The services write structured JSON logs to stdout. The **Dynatrace Kubernetes Operator** manages two relevant components via the `DynaKube` custom resource:
+
+- **OneAgent (DaemonSet)** — monitors processes running in every pod on the node, providing distributed tracing and APM.
+- **Log Monitoring** — a separate feature enabled in the `DynaKube` spec that collects container logs from every pod on the node.
+
+At collection time, OneAgent automatically attaches entity context — cluster, namespace, workload, pod, container, and host — to every log record. It also parses `trace_id` and `span_id` from the JSON body and stores them as first-class attributes. The result is that every log arrives in Dynatrace already tagged with both its infrastructure origin and its place in the distributed trace, with no manual pipeline configuration required.
+
+!!! note "OTel is not a requirement"
+    No application code changes are required here because astroshop already ships with the OTel SDK and log bridge configured. For your own services, you would need to initialize the OTel log bridge to get the same automatic injection.
+
+    However, OTel is not the only path. If OneAgent is monitoring the process (not just collecting container logs), it can inject `trace_id` and `span_id` directly into log output at the agent level — even for services that use a plain logger with no OTel instrumentation. In that case, the correlation works the same way in Dynatrace; the difference is only in how the trace context gets into the log line.
 
 ## Orient yourself in the Kubernetes app
 
@@ -20,63 +36,59 @@ Before looking at logs, get a picture of what is running. Open the Dynatrace **K
 
 ### 1. Find your cluster
 
-The Kubernetes app shows every cluster reporting to this Dynatrace tenant. Use the filter bar at the top to narrow it down to yours — your cluster is named after your assigned username (for example, `user05`).
+Open the **Explorer** tab at the top of the Kubernetes app. Use the filter bar to narrow the view to your cluster — your cluster name follows the format `bindplane-logs-{your-name}-{date}` (for example, `bindplane-logs-kevin-leng-20260928`). Select **Clusters** in the left panel and click your cluster to open it.
 
-Once filtered, select your cluster. The overview shows node health, workload status, and any active problems across the cluster.
+The overview shows node health, workload status, and any active problems across the cluster.
 
 ### 2. Navigate to the astroshop namespace
 
-Click **Namespaces** in the left panel and select `astroshop`. You will see all the workloads that make up the demo application — each one is a microservice.
+Click **Namespaces** in the left panel. The main area lists all namespaces in the cluster. Click the `astroshop` row to open it.
 
-### 3. Drill into a workload
+![Namespace list showing astroshop](img/logs-in-context/namespace-list.png)
 
-Click on the `checkoutservice` workload. The detail view shows pod health, CPU and memory usage, and any active problems detected by OneAgent.
+### 3. View logs for the entire namespace
 
-### 4. Open logs from the service
+With the `astroshop` namespace selected, click the **Logs** tab in the right-hand detail panel. Dynatrace shows every log record from every workload in the namespace — scoped automatically to the entity you selected, with no filter required.
 
-Click the **Logs** button in the workload detail view. The Log Viewer opens pre-filtered to logs from that service — Dynatrace already knows which pods belong to this workload and applies the filter automatically.
+![Namespace-level logs showing ~95k records across all astroshop workloads](img/logs-in-context/namespace-logs.png)
+
+In the **Recommended queries** panel at the bottom, click **Run query** next to **Show logs in current context** to open the Log Viewer pre-filtered to this namespace.
+
+### 4. Narrow to a single service
+
+Click **Services** just under `astroshop` in the left panel. The list shows every service Dynatrace has discovered in the `astroshop` namespace. Click a service — for example, `payment` — and then open its **Logs** tab.
+
+![Service-level logs for the payment service](img/logs-in-context/service-logs.png)
+
+The log count drops dramatically (from ~95k at namespace level to a few hundred for this service). The filter is applied automatically — Dynatrace already knows which pods and processes belong to the `payment` service.
 
 !!! tip "Logs are already there"
     The Kubernetes Operator deployed OneAgent as a DaemonSet, which is already collecting container logs from every pod in the cluster. The correlation to cluster, namespace, workload, and pod happens automatically at collection time — you did not have to configure any of it.
 
 ## From a log to a trace
 
-Every log record from an OTel-instrumented service carries a `trace_id`. Dynatrace surfaces this as a clickable link directly in the Log Viewer.
+From any entity view — namespace, service, or workload — click **Run query** next to **Show logs in current context** to open the Log Viewer scoped to that entity. This is your starting point for exploring individual log records.
 
-Open a log record from the `checkoutservice`. In the attributes panel on the right, find the `trace_id` field. Click it — Dynatrace opens the correlated distributed trace directly.
+Every log record from an instrumented service carries `trace_id` and `span_id`, visible when you expand a record. Click the arrow on the left of any log row to open it. The detail view shows the full log content alongside every attribute Dynatrace enriched it with at ingest time — Kubernetes entity context (`k8s.cluster.name`, `k8s.namespace.name`, `k8s.node.name`, `k8s.pod.name`, `k8s.workload.name`) and, for instrumented services, `trace_id` and `span_id`.
 
-The trace shows the full call graph for the request that produced the log: every service called, every span, and the time spent in each. Click the **Logs** tab within the trace to see every log record written across all services for that single request, stitched together in timeline order.
+![Expanded log record showing entity context and trace_id attributes](img/logs-in-context/log-record-detail.png)
 
-!!! info "How Dynatrace links logs to traces"
-    Dynatrace reads `trace_id` at ingest time and uses it to join logs to spans. No query is needed — the link is built when the log arrives. OneAgent parses the field automatically from structured JSON logs.
+Press `T` or click **View trace** in the action bar to open the correlated distributed trace directly — no copy-pasting of IDs required.
+
+The trace opens in a side panel showing the full call graph. Click the **Logs** tab at the bottom to see every log record for that request — not just from the service you started in, but from every service that participated in the trace. In the example below, a single checkout request produced logs from the currency service, cart service, quote service, and payment service, all stitched together automatically using the shared `trace_id`.
+
+![Distributed trace view with Logs tab showing records from multiple services for a single request](img/logs-in-context/trace-view.png)
+
+Click an individual span — such as `Charge` in the payment service — to scope the log view to just that span.
 
 ## From a trace back to logs
 
-The reverse path is equally direct. Open the **Distributed Traces** app and find any trace from the astroshop services. Click the **Logs** tab on the trace overview to see all logs for the full request, or click into an individual span and open its **Logs** tab to scope the view to just that span.
+You can also start from a trace and navigate to logs. Open the **Distributed Traces** app and find any astroshop trace. Click the **Logs** tab on the trace overview to see all logs for the full request across every service, or click into an individual span and open its **Logs** tab to scope the view to just that operation. Neither path requires knowing a pod name or writing a filter.
 
-This makes it easy to answer questions like:
+**Try it yourself:**
 
-- Which service logged an error during this request?
-- How many log records did the payment service write before the failure?
-- Did the database call produce any warnings?
-
-None of these require knowing a pod name or writing a filter — Dynatrace already knows which logs belong to which span.
-
-## Troubleshooting
-
-### `trace_id` is present but the link does not appear in the Log Viewer
-
-Dynatrace correlates on `trace_id` using the W3C TraceContext format: 32 lowercase hex characters, no dashes. If the field arrives formatted differently (for example as a UUID with dashes), the correlation silently fails.
-
-Open a log record and inspect the raw `trace_id` value. It should look like `4bf92f3577b34da6a3ce929d0e0e4736`, not `4bf92f35-77b3-4da6-a3ce-929d0e0e4736`.
-
-### `trace_id` is absent from log records
-
-| Symptom | Cause |
-|---|---|
-| Log body is plain text | Service uses a non-OTel logger — trace context cannot be injected without source changes |
-| Body is JSON but `trace_id` is missing | OTel log bridge not initialized in the service |
-| Field exists as `traceId` (camelCase) | Non-standard field name — the clickable link will not appear, but the field is still queryable |
+- Open the **Distributed Traces** app and find a checkout trace. Click the **Logs** tab on the trace overview — which services emitted logs, and in what order? Find the log that was emitted closest to the end of the trace.
+- Open the **Services** app and find the `payment` service. Open its **Logs** tab — how does the log view here compare to what you saw when navigating to the service via the Kubernetes app?
 
 ## Lab exercise
 
@@ -84,25 +96,27 @@ Open a log record and inspect the raw `trace_id` value. It should look like `4bf
 
 1. Open the astroshop storefront and place an order.
 
-2. In the Dynatrace **Kubernetes** app, filter to your cluster and navigate to **Namespaces** → `astroshop` → `checkoutservice`. Open the workload's logs.
+2. In the Dynatrace **Kubernetes** app, open the **Explorer** tab and filter to your cluster (`bindplane-logs-{your-name}-{date}`). Click **Namespaces** in the left panel, then click the `astroshop` row. Open the **Logs** tab in the right panel. How many log records are there across the namespace?
 
-3. Find a log record from around the time of your order. Open it and confirm the `trace_id` field is present in the attributes panel.
+3. Click **Run query** next to **Show logs in current context**. Expand a log record from around the time of your order. Confirm that `trace_id` and Kubernetes attributes (`k8s.namespace.name`, `k8s.pod.name`, `k8s.workload.name`) are all present.
 
-4. Click the `trace_id` to open the correlated trace. How many services are represented as spans in the trace?
+4. Press `T` (or click **View trace**) to open the correlated trace. How many services are represented as spans?
 
 5. In the trace view, click the **Logs** tab. You should see log records from multiple services for this single request. Which service produced the most log records?
 
 6. Click into the span for `checkoutservice`. Open that span's **Logs** tab. How many log records were written during just that span?
 
-7. Navigate back to the workload logs view. Find a record with a WARN or ERROR level. Click its `trace_id`. Does the trace show a failure span? Does the span's time range overlap with the log's timestamp?
+7. Go back to the Kubernetes app and navigate to **Services** just under `astroshop`. Select the `payment` service and open its **Logs** tab. How does the log count compare to the namespace-level view?
 
-8. Return to the `astroshop` namespace view. Pick a different workload — such as `productcatalogservice` — and open its logs. Open a record and follow its `trace_id` to the trace. Is the `checkoutservice` span present in the same trace?
 
-**Checkpoint:** you can start from any astroshop service's logs, follow the trace link to see the full call graph, and scope logs to a specific span — all without writing a query or knowing which pod handled the request.
+**Checkpoint:** you can start from namespace-level logs, drill to a service, follow a trace, and scope logs to a specific span — all without writing a query or knowing which pod handled the request.
 
 ---
 
 ## Optional: from a user session to logs
+
+!!! info "Prerequisite"
+    The astroshop frontend must have the Dynatrace RUM JavaScript snippet injected, and the backend services must propagate the `traceparent` header so Dynatrace can correlate the frontend action to the backend trace. Skip this section if RUM is not enabled on your tenant.
 
 If Real User Monitoring is enabled for the astroshop frontend, you can start the investigation from the user's perspective rather than from infrastructure.
 
@@ -120,6 +134,3 @@ User clicks "Place Order"
 ```
 
 No ticket number, no pod name, no timestamp hunting — just follow the links.
-
-!!! info "Prerequisite"
-    The astroshop frontend must have the Dynatrace RUM JavaScript snippet injected, and the backend services must propagate the `traceparent` header so Dynatrace can correlate the frontend action to the backend trace.

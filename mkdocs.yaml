@@ -21,6 +21,8 @@ nav:
   - "10. Bindplane Health": 9-bindplane-health.md
   - "11. Masking Sensitive Data": 7-masking-routing.md
   - "12. Extracting Metrics from Logs": 8-metric-extraction.md
+  - "13. Logs in Context": logs-in-context.md
+  - "14. OpenPipeline: Payment Field Extraction": openpipeline-payment-extraction.md
 
 extra_css:
   - stylesheets/extra.css
