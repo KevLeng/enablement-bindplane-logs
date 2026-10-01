@@ -16,7 +16,9 @@ In this section you build your first configuration: four sources and one destina
 Once you assign your agent and roll it out, you will see throughput in the Bindplane pipeline overview and records arriving in the Dynatrace Logs app.
 
 ### 1. Create the configuration
-Choose a descriptive name for your configuration, choose **Linux** for the platform, and click "next"
+Click **Configurations** then **Create Configuration**
+
+Choose a descriptive name for your configuration, choose **Linux** for the platform, **Edge** for the Collector Role and click "next"
 ![alt text](img/4-bindplane-configuration/1-create-configuration.png)
 
 ### Watch: adding all four sources
@@ -48,6 +50,8 @@ Configure it with all three log files. These are the only three worth collecting
 
 ![Configure the File source paths](img/4-bindplane-configuration/2-find-source-file-paths.png)
 
+Click **Save**
+
 ### 3. Add the Syslog source
 
 Click **Add Source**, search for `syslog`, and choose **Syslog**.
@@ -73,6 +77,8 @@ Click **Add Source**, search for `syslog`, and choose **Syslog**.
 
     **Parse To** must be `body`. It controls where the parsed syslog fields land, and the Parse CSV processor in a later section points at `body.message`. If you set this to `attributes`, that processor finds nothing and fails silently.
 
+Click **Save**
+
 ### 4. Add the NetFlow source
 
 Click **Add Source**, search for `netflow`, and choose **NetFlow**.
@@ -95,15 +101,23 @@ Click **Add Source**, search for `netflow`, and choose **NetFlow**.
 !!! tip "NetFlow arrives as logs"
     The NetFlow receiver emits on the logs signal, so flow records show up in the Logs app rather than as metrics. NetFlow v5 needs no template exchange, so records decode immediately.
 
+Click **Save**
+
 ### 5. Add the Bindplane source
 
-This one collects the collector's own logs, which you will use later for self-monitoring. Search for `bindplane` and choose **Bindplane**.
+This one collects the collector's own logs, which you will use later for self-monitoring. Search for `bindplane` and choose **Bindplane Collector**.
 
 ![Find the Bindplane source](img/4-bindplane-configuration/3-add-bindplane-agent-logs-source.png)
 
-Don't change any values.  Just accept the defaults.
+| Setting | Value |
+|---|---|
+| Short Description | `Bindplane self-telemetry` |
+
+Don't change any other values.  Just accept the defaults.
 
 ![Configure the Bindplane Collector source](img/4-bindplane-configuration/bindplane-self-telemetry.png)
+
+Click **Save**
 
 <!-- | Setting | Value |
 |---|---|
@@ -138,11 +152,11 @@ Alternatively, you can enter a custom [Dynatrace OTLP endpoint](https://docs.dyn
 
 ![alt text](img/4-bindplane-configuration/5-alt.png)
 
-Click "Save" and you'll be sent to the Configuration you just created.
+Click **Save** and then **Save** again, and you'll be sent to the Configuration you just created.
 
 ### 8. View the Configuration and Pipeline
 
-We've created a Bindplane Configuration that can deployed wherever we need to collect and send logs.  You can see the logs pipeline we created, but it's not doing much right now because we haven't told any agents to use it.  Scroll down and you'll see a listing of all the agents using this configuration (none yet!), and a button to "Add Agents".
+We've created a Bindplane Configuration that can deployed wherever we need to collect and send logs.  You can see the logs pipeline we created, but it's not doing much right now because we haven't told any agents to use it.  Scroll down and you'll see a listing of all the agents using this configuration (none yet!), and a button to "Add Collectors".
 
 ![alt text](img/4-bindplane-configuration/6-view-pipeline.png)
 
@@ -154,13 +168,13 @@ The pipeline graph shows all four sources converging on the Dynatrace destinatio
 
 ![Pipeline graph with all four sources](img/4-bindplane-configuration/6-view-pipeline-with-bindplane-collector-source.png)
 
-!!! tip "Throughput reads 0 B/m until an agent is attached"
+!!! tip "Throughput reads 0 B/m until an collectors is attached"
     The percentages on each link are the share of data flowing down that path. They stay at zero until you complete the next step, so do not read anything into them yet.
 
 ### 9. Add the Agents to the Configuration
 
-1. Click "Add Agents"
-2. In the pop-up dialog, choose the Agent you created earlier
+1. Click "Add Collectors"
+2. In the pop-up dialog, choose the collector you created earlier
 3. Click "Apply"
 
 ![alt text](img/4-bindplane-configuration/7-add-agent.png)
