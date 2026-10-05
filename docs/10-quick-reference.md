@@ -72,40 +72,23 @@ Multiline Parsing &mdash; `none`
 
 ### Syslog source
 
+Enter the Short Description and accept every other default.
+
 Short Description:
 
 ```
 syslog
 ```
 
-Listening IP Address:
+!!! tip "What our simulator sends to udp/5140"
+    `push_telemetry.py` emits a realistic mixed enterprise syslog stream: PAN-OS firewall records (the largest share, used in the Parse CSV and Volume Reduction labs), Azure NSG flow logs, Citrix CDF, FSLogix, AVD checkpoints, connections, errors and routine healthchecks. All BSD-format (RFC 3164), landing on `127.0.0.1:5140` where the Bindplane Syslog source picks them up.
 
-```
-0.0.0.0
-```
-
-Listening Port:
-
-```
-5140
-```
-
-Protocol &mdash; `rfc3164`
-
-Transport Protocol &mdash; `udp`
-
-Data Flow &mdash; `high`
-
-Timezone &mdash; `UTC`
-
-Parse To &mdash; `body`
-
-Multiline Parsing &mdash; `none`
-
-!!! warning "Two picks that matter later"
-    **Protocol** must be `rfc3164`, not 5424. **Parse To** must be `body`, or the Parse CSV processor in step 4 finds nothing.
+!!! warning "If the defaults have drifted"
+    This step assumes current Bindplane defaults of **Protocol** = `rfc3164` and **Parse To** = `body`. Those are what the simulator and the later Parse CSV step both depend on; if your UI shows anything else for either, switch them before saving.
 
 ### NetFlow source
+
+Enter the Short Description and accept every other default.
 
 Short Description:
 
@@ -113,27 +96,8 @@ Short Description:
 Netflow
 ```
 
-Hostname:
-
-```
-0.0.0.0
-```
-
-Port:
-
-```
-2055
-```
-
-Telemetry Type &mdash; `LOGS`
-
-Scheme &mdash; `netflow`
-
-Sockets &mdash; `1`
-
-Workers &mdash; `1`
-
-Send Raw &mdash; unchecked
+!!! tip "What our simulator sends to udp/2055"
+    The same `push_telemetry.py` emits NetFlow v5 flow records at about 5 flows/sec, batched 20 per datagram. NetFlow v5 needs no template exchange, so records decode immediately on arrival.
 
 ### Bindplane Collector source
 
