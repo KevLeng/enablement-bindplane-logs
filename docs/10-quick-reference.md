@@ -156,13 +156,20 @@ Remember this value: step 6 (`matchesValue(project, "<yourname>")`) must use exa
 
 **Parse CSV** processor on the Syslog source. Telemetry type **LOGS**.
 
-Condition &mdash; two rows joined with **AND**, both matching on **Body**. Field `appname` **Equals**:
+### Condition
+
+Two rows joined with **AND** &mdash; both match on **Body**:
+
+| # | Match | Field | Operator | String |
+|---|---|---|---|---|
+| 1 | Body | `appname` | Equals | `PAN-OS` |
+| 2 | Body | `message` | Contains | `,TRAFFIC,end,` |
+
+Copy these into the **String** field for each row:
 
 ```
 PAN-OS
 ```
-
-Field `message` **Contains**:
 
 ```
 ,TRAFFIC,end,
@@ -188,6 +195,12 @@ pan
 
 Header Field Type &mdash; **Static String**
 
+**Headers** &mdash; all 38 column names, pasted as a single comma-separated line:
+
+```
+futureuse1,futureuse2,receive_time,serial_number,type,subtype,futureuse3,generate_time,src_ip,dst_ip,nat_src_ip,nat_dst_ip,rule_name,src_user,dst_user,app,vsys,src_zone,dst_zone,inbound_if,outbound_if,log_action,futureuse4,session_id,repeat_cnt,src_port,dst_port,nat_src_port,nat_dst_port,flags,protocol,action,bytes,bytes_sent,bytes_received,packets,elapsed,session_end_reason
+```
+
 Delimiter:
 
 ```
@@ -197,12 +210,6 @@ Delimiter:
 Header Delimiter &mdash; leave empty
 
 Mode &mdash; **Strict**
-
-### Headers, all 38
-
-```
-futureuse1,futureuse2,receive_time,serial_number,type,subtype,futureuse3,generate_time,src_ip,dst_ip,nat_src_ip,nat_dst_ip,rule_name,src_user,dst_user,app,vsys,src_zone,dst_zone,inbound_if,outbound_if,log_action,futureuse4,session_id,repeat_cnt,src_port,dst_port,nat_src_port,nat_dst_port,flags,protocol,action,bytes,bytes_sent,bytes_received,packets,elapsed,session_end_reason
-```
 
 !!! danger "Two settings that will bite you"
     Source Field Type is **Body**, not Attributes &mdash; the Syslog source moves `appname` and `message` into the body. And always set the Condition, or the JSON records on the same port flood the log with CSV parse errors.
