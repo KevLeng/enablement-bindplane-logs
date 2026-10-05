@@ -69,8 +69,6 @@ Log Type &mdash; `file`
 
 Multiline Parsing &mdash; `none`
 
-!!! danger "Only those three files"
-    `auth.log`, `kern.log` and `cron.log` are duplicates of what is already in `syslog` &mdash; 41% of total volume, entirely redundant. `audit/audit.log` and `fail2ban.log` are not duplicates, and the audit log carries the leaked credentials.
 
 ### Syslog source
 
