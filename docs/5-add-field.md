@@ -4,7 +4,7 @@ That's where **processors** come in. A Bindplane processor sits between your sou
 
 Bindplane's live log preview makes this easy to reason about. Before you commit any changes, you can see exactly what a log record looks like *before* and *after* your processor is applied using actual live data from your agent. Once you're happy with what you see, a rollout pushes the updated configuration to the agent seamlessly.
 
-In this section, you'll add a `project: TonyStark` attribute to every log in your pipeline. This field will follow your logs into Dynatrace and become the key you use throughout the rest of the lab for filtering, routing in OpenPipeline, and building queries.
+In this section, you'll add a `project: <yourname>` attribute (for example `project: TonyStark`) to every log in your pipeline. Use the same value you pick here everywhere else in the lab so the OpenPipeline route in a later step can find your logs. This field will follow your logs into Dynatrace and become the key you use throughout the rest of the lab for filtering, routing in OpenPipeline, and building queries.
 
 
 See our Syslogs in Dynatrace.  They're mixed in with everything else that is streaming in to our Dynatrace environment.
@@ -39,7 +39,7 @@ Click on the processor name to begin configuring it.
 We are going to add a field to all logs used in this lab so that they are easily filterable in Dynatrace.
 
 1. Add the Short Description "Add Project Name"
-2. For the field itself, use `project` for the field name, and `TonyStark` for the field value.   Keep the defaults for the other values.
+2. For the field itself, use `project` for the field name, and `<yourname>` for the field value &mdash; `TonyStark` is the example used throughout this lab. Keep the defaults for the other values.
 !!! info "A Unified Telemetry Pipeline Built on OpenTelemetry"
     Because Bindplane manages OpenTelemetry components, our Add Field follows the [OpenTelemetry Specification](https://opentelemetry.io/docs/specs/otel/logs/data-model/#log-and-event-record-definition), which you may recognize.  We can change the field type to a Resource field, or the Body of the message altogther, as well as the attribute type we're adding here.  We can also choose how to modify the record: Insert, Update or Upsert.
 
