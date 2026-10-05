@@ -285,9 +285,13 @@ def ev_healthcheck(ts):
         f'upstream={random.choice(VDA)}')
 
 
-# (weight, generator) — weight is relative share of the syslog stream
+# (weight, generator) — weight is relative share of the syslog stream.
+# PAN-OS is weighted heavily so the Volume Reduction lab (0.9–0.95 sampling on
+# `allow`) produces a clearly visible drop at pipeline level. At weight 85 the
+# PAN-OS share of syslog is ~55%, and with ~92% of PAN-OS being `allow` and a
+# 0.95 drop ratio, the end-to-end pipeline reduction lands near 45%.
 SOURCES = [
-    (32, ev_panos_traffic),
+    (85, ev_panos_traffic),
     (14, ev_nsg_flow),
     (20, ev_citrix_cdf),
     (5, ev_citrix_logon),
