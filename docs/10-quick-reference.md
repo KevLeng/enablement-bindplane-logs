@@ -1,6 +1,6 @@
 # Quick Reference
 
-Every value you type, paste or search for in this lab, in the order you need it. Each step links to its full walkthrough. All videos and screenshots are collected under [Walkthroughs](#walkthroughs) at the bottom.
+Every value you type, paste or search for in this lab, in the order you need it. Each step shows its settings in a table for a quick scan, and anything long or copy-worthy is also a fenced code block below it so you can grab it with the copy button. Each step links to its full walkthrough. All videos and screenshots are collected under [Walkthroughs](#walkthroughs) at the bottom.
 
 ## Before you start
 
@@ -45,11 +45,12 @@ Platform **Linux**. Four sources, one destination. **Start Rollout** when done.
 
 ### File source
 
-Short Description:
-
-```
-file
-```
+| Setting | Value |
+|---|---|
+| Short Description | `file` |
+| File Paths | three entries, see below |
+| Log Type | `file` |
+| Multiline Parsing | `none` |
 
 File Paths &mdash; add each one as its own entry:
 
@@ -65,16 +66,14 @@ File Paths &mdash; add each one as its own entry:
 /var/log/fail2ban.log
 ```
 
-Log Type &mdash; `file`
-
-Multiline Parsing &mdash; `none`
-
-
 ### Syslog source
 
 Enter the Short Description and accept every other default.
 
-Short Description:
+| Setting | Value |
+|---|---|
+| Short Description | `syslog` |
+| Everything else | accept Bindplane defaults |
 
 ```
 syslog
@@ -90,7 +89,10 @@ syslog
 
 Enter the Short Description and accept every other default.
 
-Short Description:
+| Setting | Value |
+|---|---|
+| Short Description | `Netflow` |
+| Everything else | accept Bindplane defaults |
 
 ```
 Netflow
@@ -111,33 +113,36 @@ Your environment ID, plus the token from [Before you start](#before-you-start).
 
 ## 3. Add a field &mdash; [details](5-add-field.md)
 
-*Why:* everyone running this lab might push into the same Dynatrace tenant. Stamping a `project` field on every record is how you tell your logs apart from the next person’s — and it is the key OpenPipeline uses in step 6 to route only your traffic through your pipeline.
+*Why:* everyone running this lab might push into the same Dynatrace tenant. Stamping a `project` field on every record is how you tell your logs apart from the next person&rsquo;s &mdash; and it is the key OpenPipeline uses in step 6 to route only your traffic through your pipeline.
 
-Click the processor node closest to the **Dynatrace** destination (the shared one that every source feeds into), then **Add Processor** → search for `add fields` → pick the **Add Fields** *Transform* result.
+Click the processor node closest to the **Dynatrace** destination (the shared one that every source feeds into), then **Add Processor** &rarr; search for `add fields` &rarr; pick the **Add Fields** *Transform* result.
 
-**Telemetry type** — leave only **Logs** selected (metrics and traces don’t apply here).
+**Telemetry type** &mdash; leave only **Logs** selected (metrics and traces don&rsquo;t apply here).
 
-Under **Fields**:
+### Fields
 
-- **Field Type** — `Attribute`
-- **Action** — `Upsert`
-- **Field**:
+| Setting | Value |
+|---|---|
+| Field Type | **Attribute** |
+| Action | **Upsert** |
+| Field | `project` |
+| Value | `<yourname>` (we use `TonyStark` as the running example) |
 
-    ```
-    project
-    ```
+Values to copy:
 
-- **Value** — replace `<yourname>` with any string that uniquely identifies you (we use `TonyStark` as the running example):
+```
+project
+```
 
-    ```
-    <yourname>
-    ```
+```
+<yourname>
+```
 
 Click **+ Add field** to stamp more key/value pairs on every record if you want (e.g., `environment`, `owner`); otherwise one row is enough.
 
 Remember this value: step 6 (`matchesValue(project, "<yourname>")`) must use exactly the same string, or your logs will not reach the OpenPipeline pipeline.
 
-!!! info "Body, Attributes, Resource — which Field Type to choose"
+!!! info "Body, Attributes, Resource &mdash; which Field Type to choose"
     The **Field Type** dropdown mirrors the three places an OpenTelemetry record can carry data. Picking the right one matters because later processors (and DQL queries) look in specific places.
 
     | Field Type | OTel meaning | Scope | Example |
@@ -165,7 +170,7 @@ Two rows joined with **AND** &mdash; both match on **Body**:
 | 1 | Body | `appname` | Equals | `PAN-OS` |
 | 2 | Body | `message` | Contains | `,TRAFFIC,end,` |
 
-Copy these into the **String** field for each row:
+Strings to copy into the **String** field for each row:
 
 ```
 PAN-OS
@@ -177,39 +182,35 @@ PAN-OS
 
 ### Fields
 
-Source Field Type &mdash; **Body**
+| Setting | Value |
+|---|---|
+| Source Field Type | **Body** |
+| Source Field | `message` |
+| Target Field Type | **Body** |
+| Target Field | `pan` |
+| Header Field Type | **Static String** |
+| Headers | all 38 column names, see below |
+| Delimiter | `,` |
+| Header Delimiter | leave empty |
+| Mode | **Strict** |
 
-Source Field:
+Values to copy:
 
 ```
 message
 ```
 
-Target Field Type &mdash; **Body**
-
-Target Field:
-
 ```
 pan
 ```
-
-Header Field Type &mdash; **Static String**
-
-**Headers** &mdash; all 38 column names, pasted as a single comma-separated line:
 
 ```
 futureuse1,futureuse2,receive_time,serial_number,type,subtype,futureuse3,generate_time,src_ip,dst_ip,nat_src_ip,nat_dst_ip,rule_name,src_user,dst_user,app,vsys,src_zone,dst_zone,inbound_if,outbound_if,log_action,futureuse4,session_id,repeat_cnt,src_port,dst_port,nat_src_port,nat_dst_port,flags,protocol,action,bytes,bytes_sent,bytes_received,packets,elapsed,session_end_reason
 ```
 
-Delimiter:
-
 ```
 ,
 ```
-
-Header Delimiter &mdash; leave empty
-
-Mode &mdash; **Strict**
 
 !!! danger "Two settings that will bite you"
     Source Field Type is **Body**, not Attributes &mdash; the Syslog source moves `appname` and `message` into the body. And always set the Condition, or the JSON records on the same port flood the log with CSV parse errors.
@@ -218,17 +219,29 @@ Mode &mdash; **Strict**
 
 ## 5. Reduce volume &mdash; [details](pipeline-volume-reduction.md)
 
-*Why:* about 92% of firewall traffic is routine `allow` sessions you will never investigate. Drop 90% of those and keep every `deny` intact — roughly 84% volume saving measured in this lab, with zero loss on the records that matter.
+*Why:* about 92% of firewall traffic is routine `allow` sessions you will never investigate. Drop 90% of those and keep every `deny` intact &mdash; roughly 84% volume saving measured in this lab, with zero loss on the records that matter.
 
 **Sample Logs** processor, placed **after** Parse CSV.
 
-Condition &mdash; Match **Body**, Field `pan["action"]`, Operator **Equals**, String:
+### Condition
+
+One row, matching on **Body**:
+
+| Match | Field | Operator | String |
+|---|---|---|---|
+| Body | `pan["action"]` | Equals | `allow` |
+
+### Settings
+
+| Setting | Value |
+|---|---|
+| Drop Ratio | `0.9` |
+
+Values to copy:
 
 ```
 allow
 ```
-
-Drop Ratio:
 
 ```
 0.9
@@ -242,13 +255,16 @@ Drop Ratio:
 
 New logs pipeline, add the **Syslog** technology bundle.
 
-Processor condition, replacing the bundle's default:
+| Setting | Value |
+|---|---|
+| Processor condition (replaces the bundle's default) | see below |
+| Dynamic route condition | see below &mdash; use the same name you set in step 3 (example: `"TonyStark"`) |
+
+Values to copy:
 
 ```
 matchesValue(log.file.name, "syslog")
 ```
-
-Dynamic route condition &mdash; use the same name you set in step 3 (example: `"TonyStark"`):
 
 ```
 matchesValue(project, "<yourname>")
@@ -260,7 +276,14 @@ matchesValue(project, "<yourname>")
 
 *Why:* the collector reports its own metrics and logs. If the pipeline slows or an exporter starts failing, you see it in Dynatrace next to the data it was meant to ship.
 
-**Bindplane Agent** source with metrics **and** logs, linked to the Dynatrace destination. Add a **Custom** processor covering both signals:
+| Setting | Value |
+|---|---|
+| Source | **Bindplane Agent** |
+| Telemetry types | metrics **and** logs |
+| Linked destination | Dynatrace |
+| Processor | **Custom**, covering both signals (see YAML below) |
+
+Custom processor configuration:
 
 ```yaml
 cumulativetodelta: {}
@@ -274,41 +297,55 @@ Then upload the dashboard from the repo's `Dashboards` folder.
 
 *Why:* credentials sometimes leak into logs. Hash them before they leave the host. Routing sends only the records that match through the redactor, so everything else bypasses the extra processing and keeps the pipeline fast.
 
-**Routing** connector with two routes, evaluated top down, first match wins.
+### Routing connector
 
-Route 1 name:
+Two routes, evaluated top down, first match wins.
+
+| # | Route name | Condition |
+|---|---|---|
+| 1 | `bch-credentials` | Log &rarr; `body` &rarr; **Matches** &rarr; regex, see below |
+| 2 | `default` | (none &mdash; catch-all) |
+
+Route names and the regex to paste into row 1's **String** field:
 
 ```
 bch-credentials
 ```
 
-Route 1 condition &mdash; Log &rarr; `body` &rarr; **Matches**:
-
 ```
 BCH_ACCESS_KEY_ID=|BCH_SECRET_ACCESS_KEY=
 ```
-
-The same condition written as OTTL:
-
-```
-IsMatch(body, "BCH_ACCESS_KEY_ID=|BCH_SECRET_ACCESS_KEY=")
-```
-
-Route 2 name, with no condition:
 
 ```
 default
 ```
 
-On the `bch-credentials` route add **Redact Sensitive Data**: strategy **Hashing**, uncheck Redaction Rule Presets, then two custom rules.
+The same route condition written as OTTL (if you prefer typing OTTL directly):
 
-Access key:
+```
+IsMatch(body, "BCH_ACCESS_KEY_ID=|BCH_SECRET_ACCESS_KEY=")
+```
+
+### Redact Sensitive Data processor
+
+Attach to the `bch-credentials` route.
+
+| Setting | Value |
+|---|---|
+| Strategy | **Hashing** |
+| Redaction Rule Presets | **unchecked** |
+| Custom Rules | 2 (see below) |
+
+| # | What it matches | Regex |
+|---|---|---|
+| 1 | Access key | `BCHK[A-Z0-9]{16}` |
+| 2 | Secret access key | `[A-Za-z0-9/+]{40}` |
+
+Regexes to copy:
 
 ```
 BCHK[A-Z0-9]{16}
 ```
-
-Secret access key:
 
 ```
 [A-Za-z0-9/+]{40}
@@ -322,21 +359,36 @@ Then wire the `default` route around the redaction node, into the processor that
 
 *Why:* turn each "credential exposed" log line into a counter metric with the credential ID as a dimension. Metrics are cheaper to query at scale and easier to alert on than scanning the raw logs for the same string.
 
-**Parse with Regex**, placed **after** the redaction processor so it parses the hashed value:
+### Parse with Regex processor
+
+Placed **after** the redaction processor so it parses the hashed value.
+
+| Setting | Value |
+|---|---|
+| Expression | regex, see below |
+| Target Field Type | **Attribute** |
+| Target Field | blank |
+
+Expression to copy:
 
 ```
 BCH_ACCESS_KEY_ID=(?<bch_access_key_id>\w+)
 ```
 
-Target Field Type **Attribute**, target field blank.
+### Signal to Metric connector
 
-Then a **Signal to Metric** connector. Metric name:
+| Setting | Value |
+|---|---|
+| Metric Name | `log.exposed_bch_credentials.count` |
+| Metric Type | **Sum** |
+| Value | `1` |
+| Dimension | `bch_access_key_id` |
+
+Values to copy:
 
 ```
 log.exposed_bch_credentials.count
 ```
-
-Metric Type **Sum**, value `1`. Dimension:
 
 ```
 bch_access_key_id
