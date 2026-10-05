@@ -217,7 +217,54 @@ futureuse1,futureuse2,receive_time,serial_number,type,subtype,futureuse3,generat
 
 ---
 
-## 5. Reduce volume &mdash; [details](pipeline-volume-reduction.md)
+## 5.a. Delete the `message` field after parsing
+
+*Why:* Parse CSV already extracted every column into `pan.*` fields, but the original comma-separated `message` string is still sitting in the body &mdash; the same data twice. Deleting it after parsing drops the duplicate bytes before they leave the host, on top of the sampling saving in step 5.b.
+
+**Delete Fields** processor, placed **after** Parse CSV. Telemetry type **LOGS**.
+
+Short Description:
+
+```
+Delete PAN-OS Message after parsing
+```
+
+### Condition
+
+Two rows joined with **OR** &mdash; both match on **Body**:
+
+| # | Match | Field | Operator | String |
+|---|---|---|---|---|
+| 1 | Body | `appname` | Equals | `PAN-OS` |
+| 2 | Body | `message` | Contains | `,TRAFFIC,end,` |
+
+Strings to copy into the **String** field for each row:
+
+```
+PAN-OS
+```
+
+```
+,TRAFFIC,end,
+```
+
+### Fields to delete
+
+| Field | Value |
+|---|---|
+| Body Fields | `message` |
+| Attribute Fields | leave empty |
+| Resource Fields | leave empty |
+
+Body Fields value to copy:
+
+```
+message
+```
+
+---
+
+## 5.b. Sample `allow` traffic &mdash; [details](pipeline-volume-reduction.md)
 
 *Why:* about 92% of firewall traffic is routine `allow` sessions you will never investigate. Drop 90% of those and keep every `deny` intact &mdash; roughly 84% volume saving measured in this lab, with zero loss on the records that matter.
 
@@ -418,7 +465,7 @@ Are the logs in Dynatrace?
 fetch logs | filter log.file.name == "syslog" | sort timestamp desc | limit 50
 ```
 
-What is the PAN-OS action mix? Run it before and after step 5 to prove the denies survived:
+What is the PAN-OS action mix? Run it before and after step 5.b to prove the denies survived:
 
 ```
 fetch logs | filter isNotNull(pan.action) | summarize count(), by: {pan.action}
