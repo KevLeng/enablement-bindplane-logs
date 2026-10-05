@@ -113,30 +113,32 @@ Your environment ID, plus the token from [Before you start](#before-you-start).
 
 *Why:* everyone running this lab might push into the same Dynatrace tenant. Stamping a `project` field on every record is how you tell your logs apart from the next person’s — and it is the key OpenPipeline uses in step 6 to route only your traffic through your pipeline.
 
-**Add Fields** transform processor on the Syslog source.
+Click the processor node closest to the **Dynatrace** destination (the shared one that every source feeds into), then **Add Processor** → search for `add fields` → pick the **Add Fields** *Transform* result.
 
-Short Description:
+**Telemetry type** — leave only **Logs** selected (metrics and traces don’t apply here).
 
-```
-Add Project Name
-```
+Under **Fields**:
 
-Field name:
+- **Field Type** — `Attribute`
+- **Action** — `Upsert`
+- **Field**:
 
-```
-project
-```
+    ```
+    project
+    ```
 
-Field value &mdash; replace `<yourname>` with any string that uniquely identifies you (we use `TonyStark` as the running example):
+- **Value** — replace `<yourname>` with any string that uniquely identifies you (we use `TonyStark` as the running example):
 
-```
-<yourname>
-```
+    ```
+    <yourname>
+    ```
+
+Click **+ Add field** to stamp more key/value pairs on every record if you want (e.g., `environment`, `owner`); otherwise one row is enough.
 
 Remember this value: step 6 (`matchesValue(project, "<yourname>")`) must use exactly the same string, or your logs will not reach the OpenPipeline pipeline.
 
-!!! info "Body, Attributes, Resource &mdash; which field type to choose"
-    The Field Type dropdown mirrors the three places an OpenTelemetry record can carry data. Picking the right one matters because later processors (and DQL queries) look in specific places.
+!!! info "Body, Attributes, Resource — which Field Type to choose"
+    The **Field Type** dropdown mirrors the three places an OpenTelemetry record can carry data. Picking the right one matters because later processors (and DQL queries) look in specific places.
 
     | Field Type | OTel meaning | Scope | Example |
     |---|---|---|---|
@@ -144,7 +146,7 @@ Remember this value: step 6 (`matchesValue(project, "<yourname>")`) must use exa
     | **Attributes** | Key/value metadata attached to this individual record | One log/span/data point | `http.status_code=500`, `project=payments` |
     | **Resource** | Metadata about the source that produced the telemetry | Everything from that source | `service.name`, `host.name`, `k8s.namespace.name` |
 
-    For this step the default (**Attributes**) is right: `project` is per-record metadata, not part of the message and not a property of the collector itself.
+    **Attribute** is the right pick here: `project` is per-record metadata, not part of the message and not a property of the collector itself.
 
 ---
 
