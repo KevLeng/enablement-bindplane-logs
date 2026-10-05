@@ -25,6 +25,8 @@ Both log generators start automatically in the container. You do **not** need to
 
 ## 1. Install the agent &mdash; [details](3-bindplane-agent.md)
 
+*Why:* the agent runs on your dev container and ships logs to Dynatrace. Bindplane manages its config remotely, so you only ever touch the host for this one install step.
+
 Copy the install command from Bindplane, paste it into the container terminal, then start the collector:
 
 ```
@@ -36,6 +38,8 @@ Do **not** use `systemctl`, whatever the installer prints.
 ---
 
 ## 2. Create the configuration &mdash; [details](4-bindplane-configuration.md)
+
+*Why:* a Bindplane configuration says where logs come from and where they go. One **Rollout** pushes it to every assigned agent, and it can be versioned and rolled back if needed.
 
 Platform **Linux**. Four sources, one destination. **Start Rollout** when done.
 
@@ -145,6 +149,8 @@ Your environment ID, plus the token from [Before you start](#before-you-start).
 
 ## 3. Add a field &mdash; [details](5-add-field.md)
 
+*Why:* everyone running this lab might push into the same Dynatrace tenant. Stamping a `project` field on every record is how you tell your logs apart from the next person’s — and it is the key OpenPipeline uses in step 6 to route only your traffic through your pipeline.
+
 **Add Fields** transform processor on the Syslog source.
 
 Short Description:
@@ -159,17 +165,30 @@ Field name:
 project
 ```
 
-Field value:
+Field value &mdash; replace `<yourname>` with any string that uniquely identifies you (we use `TonyStark` as the running example):
 
 ```
-TonyStark
+<yourname>
 ```
 
-This becomes the OpenPipeline routing key in step 6.
+Remember this value: step 6 (`matchesValue(project, "<yourname>")`) must use exactly the same string, or your logs will not reach the OpenPipeline pipeline.
+
+!!! info "Body, Attributes, Resource &mdash; which field type to choose"
+    The Field Type dropdown mirrors the three places an OpenTelemetry record can carry data. Picking the right one matters because later processors (and DQL queries) look in specific places.
+
+    | Field Type | OTel meaning | Scope | Example |
+    |---|---|---|---|
+    | **Body** | The log payload itself (the message) | One log record | `"User login failed"` or a JSON map |
+    | **Attributes** | Key/value metadata attached to this individual record | One log/span/data point | `http.status_code=500`, `project=payments` |
+    | **Resource** | Metadata about the source that produced the telemetry | Everything from that source | `service.name`, `host.name`, `k8s.namespace.name` |
+
+    For this step the default (**Attributes**) is right: `project` is per-record metadata, not part of the message and not a property of the collector itself.
 
 ---
 
 ## 4. Parse the PAN-OS CSV &mdash; [details](pipeline-field-extraction.md)
+
+*Why:* firewall records arrive as one comma-separated string in the body. **Parse CSV** splits them into named `pan.*` fields, so later processors and your DQL queries can read `pan.action`, `pan.src_ip` and the rest directly.
 
 **Parse CSV** processor on the Syslog source. Telemetry type **LOGS**.
 
@@ -228,6 +247,8 @@ futureuse1,futureuse2,receive_time,serial_number,type,subtype,futureuse3,generat
 
 ## 5. Reduce volume &mdash; [details](pipeline-volume-reduction.md)
 
+*Why:* about 92% of firewall traffic is routine `allow` sessions you will never investigate. Drop 90% of those and keep every `deny` intact — roughly 84% volume saving measured in this lab, with zero loss on the records that matter.
+
 **Sample Logs** processor, placed **after** Parse CSV.
 
 Condition &mdash; Match **Body**, Field `pan["action"]`, Operator **Equals**, String:
@@ -246,6 +267,8 @@ Drop Ratio:
 
 ## 6. Parse with OpenPipeline &mdash; [details](6-parsing-with-openpipeline.md)
 
+*Why:* Bindplane got the logs to Dynatrace; OpenPipeline parses them on arrival. The Syslog bundle extracts timestamp, severity and hostname. The `project` field from step 3 is what routes only your logs through this pipeline.
+
 New logs pipeline, add the **Syslog** technology bundle.
 
 Processor condition, replacing the bundle's default:
@@ -254,15 +277,17 @@ Processor condition, replacing the bundle's default:
 matchesValue(log.file.name, "syslog")
 ```
 
-Dynamic route condition:
+Dynamic route condition &mdash; use the same name you set in step 3 (example: `"TonyStark"`):
 
 ```
-matchesValue(project, "TonyStark")
+matchesValue(project, "<yourname>")
 ```
 
 ---
 
 ## 7. Monitor collector health &mdash; [details](9-bindplane-health.md)
+
+*Why:* the collector reports its own metrics and logs. If the pipeline slows or an exporter starts failing, you see it in Dynatrace next to the data it was meant to ship.
 
 **Bindplane Agent** source with metrics **and** logs, linked to the Dynatrace destination. Add a **Custom** processor covering both signals:
 
@@ -275,6 +300,8 @@ Then upload the dashboard from the repo's `Dashboards` folder.
 ---
 
 ## 8. Mask and route &mdash; [details](7-masking-routing.md)
+
+*Why:* credentials sometimes leak into logs. Hash them before they leave the host. Routing sends only the records that match through the redactor, so everything else bypasses the extra processing and keeps the pipeline fast.
 
 **Routing** connector with two routes, evaluated top down, first match wins.
 
@@ -321,6 +348,8 @@ Then wire the `default` route around the redaction node, into the processor that
 ---
 
 ## 9. Extract a metric &mdash; [details](8-metric-extraction.md)
+
+*Why:* turn each "credential exposed" log line into a counter metric with the credential ID as a dimension. Metrics are cheaper to query at scale and easier to alert on than scanning the raw logs for the same string.
 
 **Parse with Regex**, placed **after** the redaction processor so it parses the hashed value:
 
@@ -421,7 +450,7 @@ timeseries total = sum(log.exposed_bch_credentials.count), by: {bch_access_key_i
   =========
 
         OpenPipeline
-          dynamic route   matchesValue(project, "TonyStark")
+          dynamic route   matchesValue(project, "<yourname>")   # example: "TonyStark"
             `- Syslog technology bundle pipeline
                  processor  matchesValue(log.file.name, "syslog")
                  metric     log.exposed_bch_credentials.count

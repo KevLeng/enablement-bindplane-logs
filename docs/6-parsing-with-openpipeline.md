@@ -2,7 +2,7 @@ Your syslog records are now flowing into Dynatrace, but they arrive as a single 
 
 [OpenPipeline](https://docs.dynatrace.com/docs/platform/openpipeline)  is Dynatrace's server-side data processing engine. It receives your logs at ingest and applies a sequence of processors before storing them, so you can reshape data without touching the source or the collection agent. For common log formats like syslog, OpenPipeline includes **Technology Bundles**: pre-configured processor rules that already know how to parse the format and map fields to Dynatrace's Semantic Dictionary.
 
-You'll connect your logs to the Syslog Technology Bundle via a **Dynamic Route**, a DQL-based matching condition that tells OpenPipeline which pipeline to send specific records through. The `project` field you added in the previous section is exactly what you'll use as that routing key: logs tagged `TonyStark` go through your new pipeline, everything else is unaffected.
+You'll connect your logs to the Syslog Technology Bundle via a **Dynamic Route**, a DQL-based matching condition that tells OpenPipeline which pipeline to send specific records through. The `project` field you added in the previous section is exactly what you'll use as that routing key: logs tagged with the value you chose (`<yourname>` &mdash; `TonyStark` in our examples) go through your new pipeline; everything else is unaffected.
 
 After this section, your syslog records will have properly structured fields, correct severity levels, and far more queryable context.
 
@@ -84,7 +84,7 @@ Our processor is all set up, but it's not actually going to do anything, because
 We want to send all the logs from our Dev Container to the pipeline that we just created.  Can you think of a matching condition that would achieve that?
 
 ??? tip "Hint"
-    Remember the Bindplane processor that we used to add a field to all of the logs in our pipeline?  That field was named `project` and its value is `TonyStark` (or whatever you chose at the time)
+    Remember the Bindplane processor that we used to add a field to all of the logs in our pipeline?  That field was named `project` and its value is whatever you chose at the time (`<yourname>` &mdash; `TonyStark` in our examples)
 
 Return to the OpenPipeline Logs settings page
 
@@ -96,7 +96,7 @@ Return to the OpenPipeline Logs settings page
 On the dialog:
 
 1. Choose a descriptive name for this route
-2. Enter the matching condition for the field we added in Bindplane:  `matchesValue(project, "TonyStark")`
+2. Enter the matching condition for the field we added in Bindplane:  `matchesValue(project, "<yourname>")` &mdash; substituting the value you used in [Add a Field](5-add-field.md), for example `matchesValue(project, "TonyStark")`
 3. Choose the Pipeline that we just created
 4. Click "Add"
 
