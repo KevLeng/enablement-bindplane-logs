@@ -340,9 +340,46 @@ Then upload the dashboard from the repo's `Dashboards` folder.
 
 ---
 
-## 8. Mask and route &mdash; [details](7-masking-routing.md)
+## 8.a. Mask the leaked credentials &mdash; [details](7-masking-routing.md)
 
-*Why:* credentials sometimes leak into logs. Hash them before they leave the host. Routing sends only the records that match through the redactor, so everything else bypasses the extra processing and keeps the pipeline fast.
+*Why:* a DevOps script leaks BCH access and secret keys into `/var/log/audit/audit.log`, which the **File** source collects. Hash the credentials before they leave the host so the plaintext never reaches Dynatrace, while the hash stays unique per credential &mdash; so you can count distinct leaks later.
+
+On the **File source** lane, click the pencil icon between its existing processor node and the shared one that feeds Dynatrace &rarr; **Insert Processor Node** &rarr; **Start Rollout**. Then click the new node &rarr; **Add Processor** &rarr; search `redact` &rarr; pick **Redact Sensitive Data**.
+
+### Redact Sensitive Data settings
+
+| Setting | Value |
+|---|---|
+| Strategy | **Hashing** |
+| Redaction Rule Presets | **unchecked** |
+| Custom Rules | 2 (see below) |
+
+### Custom rules
+
+| # | What it matches | Regex |
+|---|---|---|
+| 1 | Access key | `BCHK[A-Z0-9]{16}` |
+| 2 | Secret access key | `[A-Za-z0-9/+]{40}` |
+
+Regexes to copy:
+
+```
+BCHK[A-Z0-9]{16}
+```
+
+```
+[A-Za-z0-9/+]{40}
+```
+
+Save the processor &mdash; but **don't roll out yet**. Step 8.b narrows which records actually reach this redactor.
+
+---
+
+## 8.b. Route only credential-bearing logs through the redactor &mdash; [details](7-masking-routing.md)
+
+*Why:* right now **every** File-source record would go through the redactor, and those regexes could match something that merely looks like a 40-character base64 string. Route only the records that actually contain `BCH_ACCESS_KEY_ID=` through the redactor; everything else bypasses it, which avoids false positives and keeps the hot path fast.
+
+On the same File source lane, click the pencil icon between the earlier processor node and the Redact node from 8.a &rarr; **Insert Connector** &rarr; **Routing**.
 
 ### Routing connector
 
@@ -367,38 +404,19 @@ BCH_ACCESS_KEY_ID=|BCH_SECRET_ACCESS_KEY=
 default
 ```
 
-The same route condition written as OTTL (if you prefer typing OTTL directly):
+The same route condition written as OTTL (if you prefer typing it directly):
 
 ```
 IsMatch(body, "BCH_ACCESS_KEY_ID=|BCH_SECRET_ACCESS_KEY=")
 ```
 
-### Redact Sensitive Data processor
+### Wire the routes
 
-Attach to the `bch-credentials` route.
+- Save the Routing node. The `bch-credentials` route auto-wires into the Redact processor from 8.a &mdash; leave it.
+- Click **+** on the `default` route and connect it to the shared processor node that feeds Dynatrace, bypassing the redactor.
+- **Start Rollout**.
 
-| Setting | Value |
-|---|---|
-| Strategy | **Hashing** |
-| Redaction Rule Presets | **unchecked** |
-| Custom Rules | 2 (see below) |
-
-| # | What it matches | Regex |
-|---|---|---|
-| 1 | Access key | `BCHK[A-Z0-9]{16}` |
-| 2 | Secret access key | `[A-Za-z0-9/+]{40}` |
-
-Regexes to copy:
-
-```
-BCHK[A-Z0-9]{16}
-```
-
-```
-[A-Za-z0-9/+]{40}
-```
-
-Then wire the `default` route around the redaction node, into the processor that feeds Dynatrace.
+In Dynatrace, filter for `BCH` and `KEY` &mdash; the credentials now appear as hashes instead of plaintext.
 
 ---
 
