@@ -13,63 +13,56 @@
 
 ## 2. Create the Palo Alto Dashboard
 
-Paste the following prompt into Dynatrace Assist exactly as written:
+Paste the following prompt into Dynatrace Assist - please change project to your **project name**:
 
-> **Can you help me create a Palo Alto log focused dashboard? I have a number of logs coming in for my Palo at the moment and want to surface the top talkers / issues and dropped traffic, also any trends we can pull out?**
+```
+Can you help me create a Palo Alto log focused dashboard? I have a number of logs coming in for my Palo at the moment and want to surface the top talkers / issues and dropped traffic, also any trends we can pull out?
+
+Using the "Dynatrace document structure - Dashboards" in our documentation as a reference. Generate the json in a code block I can copy/paste and upload to the document myself.
+
+Use a sensible layout, and include description markdown for new users who might not be familiar with the available data.
+
+Ensure that all the DQL is executable and that it returns data for the last 24 hours
+
+All of the tiles need to filter by project = JoeBloggs
+```
+
 
 Dynatrace Assist will:
 
 1. Inspect your available log data and field schema.
 2. Draft a set of DQL queries covering top source IPs, top destination IPs, top applications, action breakdown (allow / deny), dropped traffic volume over time, and byte throughput trends.
-3. Propose a dashboard layout with tiles for each query.
-4. Ask for confirmation before creating the dashboard.
-
-!!! tip "Review before confirming"
-    Read through the proposed tiles. If a query references a field you don't have (e.g. `pan.bytes_sent` vs `pan.bytes`), correct it in the chat before confirming.
-
+3. Creat a dashboard json you can import.
+4. Provide instructions on how to import your new dashboard=.
 
 
 ---
 
-## 3. Copy the DQL into a Dashboard
+## 3. Copy the JSON into a Dashboard
 
-Dynatrace Assist generates the DQL queries and describes the layout, but the tiles need to be built manually in the **Dashboards** app. For each tile:
+Dynatrace Assist generates the DQL queries and describes the layout in a Dashboard JSON that can be imported:
 
 1. Open **Dashboards** from the left navigation and create a new dashboard.
 
-2. Add a **DQL** tile.
+2. Click the Dashboard name and then **Edit JSON**
 
-3. Copy the DQL query from the Assist conversation and paste it into the tile editor.
+3. Paste in the dashboard JSON and click Save
 
-4. Run the query and pick the visualisation type that best fits the data (bar chart for top talkers, pie for action breakdown, line/area for trends).
 
-5. Tune as needed &mdash; adjust field names if your log schema differs, change the time range, or add a `| limit` to keep counts manageable.
+!!! info "Dashboard not populating or see and error?"
+    Give Dynatrace Assist the error message or describe the issue you are seeing, it will fix it for you.
 
-6. Give the tile a clear title, then repeat for each query.
+Example Dashboard:
 
-Suggested tiles and the DQL shape to start from:
-
-| Tile | Visualisation | DQL starting point |
-|---|---|---|
-| Top Talkers &mdash; Source IP | Bar chart | `fetch logs \| filter appname == "PAN-OS" \| summarize count(), by: {pan.src_ip} \| sort count() desc \| limit 10` |
-| Top Talkers &mdash; Destination IP | Bar chart | `fetch logs \| filter appname == "PAN-OS" \| summarize count(), by: {pan.dst_ip} \| sort count() desc \| limit 10` |
-| Top Applications | Bar chart | `fetch logs \| filter appname == "PAN-OS" \| summarize count(), by: {pan.app} \| sort count() desc \| limit 10` |
-| Allow vs Deny | Pie / single value | `fetch logs \| filter isNotNull(pan.action) \| summarize count(), by: {pan.action}` |
-| Dropped Traffic Trend | Line / area | `fetch logs \| filter pan.action == "deny" \| makeTimeseries count(), interval: 5m` |
-| Byte Throughput | Line / area | `fetch logs \| filter appname == "PAN-OS" \| makeTimeseries sum(toLong(pan.bytes)), interval: 5m` |
-
-<!-- TODO: add screenshot of dashboard with all tiles populated -->
-
-!!! info "Tile not populating?"
-    Check the time picker &mdash; the default range may be narrower than your log retention window. Try **Last 2 hours** or **Last 6 hours**. If a field like `pan.bytes` is missing, check that the Parse CSV processor ran and that the log entry has a `TRAFFIC` subtype.
+![Palo Alto Firewall Security & Traffic Dashboard](img/palo-alto-dashboard-example.png)
 
 ---
 
 ## 4. Generate a Notebook for Deeper Investigation
 
-Back in Dynatrace Assist, prompt:
+Back in Dynatrace Assist, prompt (please ensure you set your own project name):
 
-> **Can you create a notebook that lets me investigate the dropped traffic in more detail? I want to see which rules are triggering the most denies and which source/destination pairs are being blocked.**
+> **Can you create a notebook that lets me investigate the dropped traffic in more detail? I want to see which rules are triggering the most denies and which source/destination pairs are being blocked. Ensure you filter by project = JoeBloggs**
 
 The agent will create a notebook with annotated DQL sections covering:
 
@@ -83,9 +76,9 @@ The agent will create a notebook with annotated DQL sections covering:
 
 ## 5. Create an Alert for Dropped Traffic Spikes
 
-Ask Dynatrace Assist to wire up a metric alert:
+Ask Dynatrace Assist to wire up a metric alert, (please ensure you set your own project name):
 
-> **Can you set up an alert that fires if the number of denied firewall connections spikes significantly compared to the last hour's baseline?**
+> **Can you set up an alert that fires if the number of denied firewall connections spikes significantly compared to the last hour's baseline? Ensure you filter by project = JoeBloggs**
 
 The agent will:
 

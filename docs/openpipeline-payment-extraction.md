@@ -46,11 +46,11 @@ The fields you want to promote to top-level attributes are:
 
 In Dynatrace, search for **OpenPipeline** or navigate to **Settings** → **Process and Contextualize** → **Logs**.
 
-Click the **Pipelines** tab, then **+ Pipeline**. Name it `astroshop - Payment Enrichment`.
+Click the **Pipelines** tab, then  select the pipeline you created earlier.
 
 ### 2. Add a Field Extraction processor
 
-Expand the **Processors** drawer and click **+ Add**, then select **Field Extraction**.
+Expand the **Processing** drawer and click **+ Add**, then select **Add fields**.
 
 Give it a descriptive name: `Extract payment fields`.
 
@@ -84,15 +84,20 @@ Click **Save**.
 
 ### 3. Add a Dynamic Route
 
-The pipeline exists but nothing is flowing through it yet. Open the **Dynamic Routing** tab and click **+ Dynamic Route**.
+The pipeline exists but nothing is flowing through it yet. Open the **Dynamic Routing** tab and modify the **Dynamic Route** you created earlier.
+
+
+Ensure you change the cluster name to your cluster - your cluster name follows the format `bindplane-logs-{your-name}-{date}`
 
 | Setting | Value |
 |---|---|
 | Name | `astroshop payment logs` |
-| Matching condition | `matchesValue(k8s.namespace.name, "astroshop") and matchesValue(k8s.container.name, "payment")` |
-| Pipeline | `astroshop - Payment Enrichment` |
+| Matching condition | `matchesValue(k8s.cluster.name, "bindplane-logs-kevin-leng-20261006") or matchesValue(project, "JoeBloggs")` |
+| Pipeline | `<Your-Pipeline-Name>` |
 
-Save and confirm.
+Save and confirm. **Remember to Save the changes to the Dynamic Routes!**
+
+![OpenPipeline Dynamic Routing tab](img/openpipeline-dynamic-routing.png)
 
 !!! warning "Dynamic routes apply to new records only"
     Records that arrived before the route was created are already stored and will not be reprocessed. Give it a minute for new payment logs to come through, then query.
@@ -114,7 +119,7 @@ Once those fields exist as first-class attributes, they are queryable, filterabl
 **View raw "Transaction complete." logs:**
 ```dql
 fetch logs
-| filter k8s.namespace.name == "astroshop" and k8s.container.name == "payment"
+| filter k8s.cluster.name == "bindplane-logs-kevin-leng-20261006" and k8s.namespace.name == "astroshop" and k8s.container.name == "payment"
   and matchesPhrase(content, "Transaction complete.")
 | fields timestamp, content
 | limit 20
@@ -123,10 +128,9 @@ fetch logs
 **Parse fields inline — use this to test the pattern before configuring OpenPipeline:**
 ```dql
 fetch logs
-| filter k8s.namespace.name == "astroshop" and k8s.container.name == "payment"
+| filter k8s.cluster.name == "bindplane-logs-kevin-leng-20261006" and k8s.namespace.name == "astroshop" and k8s.container.name == "payment"
   and matchesPhrase(content, "Transaction complete.")
 | parse content, "JSON:json_content"
-| fieldsAdd app.payment.msg           = json_content[`msg`]
 | fieldsAdd app.payment.transactionId = json_content[`transactionId`]
 | fieldsAdd app.payment.cardType      = json_content[`cardType`]
 | fieldsAdd app.payment.amount        = json_content[`amount`][`units`][`low`]
@@ -137,10 +141,20 @@ fetch logs
 | limit 20
 ```
 
+**After extraction — view extracted fields**
+```dql
+fetch logs
+| filter k8s.cluster.name == "bindplane-logs-kevin-leng-20261006" and k8s.namespace.name == "astroshop" and k8s.container.name == "payment"
+  and matchesPhrase(content, "Transaction complete.")
+| fields timestamp, app.payment.transactionId, app.payment.cardType, app.payment.amount, app.payment.currencyCode, app.payment.loyaltyLevel
+| sort timestamp desc
+```
+
 **After extraction — count by card type and currency (no parse needed):**
 ```dql
 fetch logs
-| filter isNotNull(app.payment.cardType)
+| filter k8s.cluster.name == "bindplane-logs-kevin-leng-20261006" and k8s.namespace.name == "astroshop" and k8s.container.name == "payment"
+  and matchesPhrase(content, "Transaction complete.")
 | summarize transactions = count(), by: {app.payment.cardType, app.payment.currencyCode}
 | sort transactions desc
 ```
@@ -148,7 +162,8 @@ fetch logs
 **After extraction — transactions by loyalty tier:**
 ```dql
 fetch logs
-| filter isNotNull(app.payment.loyaltyLevel)
+| filter k8s.cluster.name == "bindplane-logs-kevin-leng-20261006" and k8s.namespace.name == "astroshop" and k8s.container.name == "payment"
+  and matchesPhrase(content, "Transaction complete.")
 | summarize transactions = count(), by: {app.payment.loyaltyLevel}
 | sort transactions desc
 ```
@@ -161,52 +176,5 @@ Select `app.payment.cardType = "american-express"` from the filter bar — no qu
 **Alert on a specific loyalty tier or card type:**
 With `app.payment.loyaltyLevel` as a proper attribute, a Log Metric or custom alert can fire on specific conditions — no string matching against raw JSON required.
 
-## Troubleshooting
-
-### The preview shows no extracted fields
-
-The parse pattern did not match the sample log. Check:
-
-- Does the `content` field contain valid JSON? Paste a raw record into the sample input box and confirm it parses without error.
-- Are the JSON key names exactly right? `loyalty_level` (underscore) and `currencyCode` (camelCase) are easy to mistype.
-- Is the nested path correct? `currency` lives at `amount.currencyCode`, not at the top level.
-
-Adjust the pattern against the real log text until the preview shows the expected output.
-
-### Some records extract correctly, others do not
-
-The payment service may log different message formats for different outcomes (a successful charge versus a declined card versus a currency conversion error). You have two options:
-
-- Add a second Field Extraction processor in the same pipeline with a different pattern and a more specific matching condition, so each format is handled separately.
-- Use a more permissive pattern with optional segments, marking optional fields with `[...]` in the parse expression.
-
-### Fields appear in preview but not in stored records
-
-Confirm the Dynamic Route is active and its matching condition evaluates to true for the records you are inspecting. Open a stored record and check whether the `dt.openpipeline.id` attribute names your pipeline — this confirms the record was routed through it.
-
-## Lab exercise
-
-**Goal:** promote payment fields from a buried message string into queryable attributes using OpenPipeline, then use those attributes without writing a parse expression in any query.
-
-1. In the Kubernetes app, open the **Explorer** tab and navigate to your cluster → **Services** (under `astroshop`) → `payment` → **Logs**. Click **Run query** next to **Show logs in current context**. Expand a "Transaction complete." record and read the raw JSON in the `content` field — note the field names and structure.
-
-2. In OpenPipeline, create the `astroshop - Payment Enrichment` pipeline and add the Field Extraction processor. Paste a real "Transaction complete." record into the sample input box and run the preview — confirm all five fields appear in the output before saving.
-
-3. Create the Dynamic Route and wait for new records to arrive (about one minute).
-
-4. Open a new "Transaction complete." log record. Confirm `app.payment.transactionId`, `app.payment.cardType`, and `app.payment.currencyCode` are present as attributes.
-
-5. Use the Log Viewer filter bar (not a query) to show only records where `app.payment.loyaltyLevel = "silver"`. How many are there in the last 30 minutes?
-
-6. Run a query to count transactions by card type and currency:
-
-    ```dql
-    fetch logs
-    | filter isNotNull(app.payment.cardType)
-    | summarize transactions = count(), by: {app.payment.cardType, app.payment.currencyCode}
-    | sort transactions desc
-    ```
-
-7. Navigate to a "Transaction complete." record and press `T` to open the correlated trace. Can you see the corresponding "Charge request received." log from the same span?
 
 **Checkpoint:** `app.payment.transactionId`, `app.payment.cardType`, `app.payment.currencyCode`, and `app.payment.loyaltyLevel` appear as attributes on new `payment` service records, and you can filter and aggregate on them from the Log Viewer without writing a parse expression.
