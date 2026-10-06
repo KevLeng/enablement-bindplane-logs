@@ -30,9 +30,9 @@ At collection time, OneAgent automatically attaches entity context — cluster, 
 
     However, OTel is not the only path. If OneAgent is monitoring the process (not just collecting container logs), it can inject `trace_id` and `span_id` directly into log output at the agent level — even for services that use a plain logger with no OTel instrumentation. In that case, the correlation works the same way in Dynatrace; the difference is only in how the trace context gets into the log line.
 
-## Orient yourself in the Kubernetes app
+## Lets Explore Logs in Content using in the Kubernetes app
 
-Before looking at logs, get a picture of what is running. Open the Dynatrace **Kubernetes** app and find your cluster.
+Open the Dynatrace **Kubernetes** app and find your cluster.
 
 ### 1. Find your cluster
 
@@ -90,47 +90,7 @@ You can also start from a trace and navigate to logs. Open the **Distributed Tra
 - Open the **Distributed Traces** app and find a checkout trace. Click the **Logs** tab on the trace overview — which services emitted logs, and in what order? Find the log that was emitted closest to the end of the trace.
 - Open the **Services** app and find the `payment` service. Open its **Logs** tab — how does the log view here compare to what you saw when navigating to the service via the Kubernetes app?
 
-## Lab exercise
-
-**Goal:** follow a single user request in astroshop from service logs to the distributed trace and back, using only the Dynatrace UI.
-
-1. Open the astroshop storefront and place an order.
-
-2. In the Dynatrace **Kubernetes** app, open the **Explorer** tab and filter to your cluster (`bindplane-logs-{your-name}-{date}`). Click **Namespaces** in the left panel, then click the `astroshop` row. Open the **Logs** tab in the right panel. How many log records are there across the namespace?
-
-3. Click **Run query** next to **Show logs in current context**. Expand a log record from around the time of your order. Confirm that `trace_id` and Kubernetes attributes (`k8s.namespace.name`, `k8s.pod.name`, `k8s.workload.name`) are all present.
-
-4. Press `T` (or click **View trace**) to open the correlated trace. How many services are represented as spans?
-
-5. In the trace view, click the **Logs** tab. You should see log records from multiple services for this single request. Which service produced the most log records?
-
-6. Click into the span for `checkoutservice`. Open that span's **Logs** tab. How many log records were written during just that span?
-
-7. Go back to the Kubernetes app and navigate to **Services** just under `astroshop`. Select the `payment` service and open its **Logs** tab. How does the log count compare to the namespace-level view?
-
 
 **Checkpoint:** you can start from namespace-level logs, drill to a service, follow a trace, and scope logs to a specific span — all without writing a query or knowing which pod handled the request.
 
----
 
-## Optional: from a user session to logs
-
-!!! info "Prerequisite"
-    The astroshop frontend must have the Dynatrace RUM JavaScript snippet injected, and the backend services must propagate the `traceparent` header so Dynatrace can correlate the frontend action to the backend trace. Skip this section if RUM is not enabled on your tenant.
-
-If Real User Monitoring is enabled for the astroshop frontend, you can start the investigation from the user's perspective rather than from infrastructure.
-
-Open the **Session Replay** or **User Sessions** app. Find a session where the user placed an order or encountered an error. From the session timeline, click on a user action (such as a button click or page load) to open the associated backend request.
-
-Dynatrace links the frontend user action to the backend trace via the `dt.rum.session_id` and the injected trace context. From the backend trace, open the **Logs** tab to see every log record written across all services for that specific user interaction.
-
-This gives you the full picture end to end:
-
-```
-User clicks "Place Order"
-    → frontend user action (Session Replay)
-        → backend distributed trace (Distributed Traces)
-            → logs from every service that handled the request (Logs)
-```
-
-No ticket number, no pod name, no timestamp hunting — just follow the links.

@@ -23,6 +23,7 @@ nav:
   - "12. Extracting Metrics from Logs": 8-metric-extraction.md
   - "13. Logs in Context": logs-in-context.md
   - "14. OpenPipeline: Payment Field Extraction": openpipeline-payment-extraction.md
+  - "15. Dynatrace Assist Dashboards": dynatrace-assist-dashboards.md
 
 extra_css:
   - stylesheets/extra.css
