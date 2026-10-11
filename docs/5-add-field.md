@@ -1,13 +1,12 @@
-When your syslogs first start arriving in Dynatrace, they'll be mixed in with every other log source in your environment. To make them easier to work with, we'll add a custom attribute to identify them.
+When your logs reach Dynatrace, they're mixed in with every other source in the environment. A **processor** fixes that: it sits between your sources and the destination and transforms records in flight, before they leave your host.
 
-That's where **processors** come in. A Bindplane processor sits between your source and destination in the pipeline and transforms log records in-flight, before they leave your host. One of the simplest and most useful processors is **Add Fields**: it stamps a static key-value attribute onto every log record passing through, so the field is always present and always consistent.
+**Add Fields** is the simplest one. It stamps a key-value attribute onto every record that passes through. You'll add it to the **processor node in front of the Dynatrace destination**, so logs from every source (file, syslog, NetFlow and the collector itself) get the same label. If you ever want a different label per source, you could add it on that source's node instead (not part of this lab).
 
-Bindplane's live log preview makes this easy to reason about. Before you commit any changes, you can see exactly what a log record looks like *before* and *after* your processor is applied using actual live data from your agent. Once you're happy with what you see, a rollout pushes the updated configuration to the agent seamlessly.
+Bindplane's live preview shows each record **before** and **after** the processor, using real data from your collector, so you can check the result before you roll it out.
 
-In this section, you'll add a `project: <yourname>` attribute (for example `project: TonyStark`) to every log in your pipeline. Use the same value you pick here everywhere else in the lab so the OpenPipeline route in a later step can find your logs. This field will follow your logs into Dynatrace and become the key you use throughout the rest of the lab for filtering, routing in OpenPipeline, and building queries.
+You will be adding `project: <yourname>` (for example `project: TonyStark`). Use the same value everywhere in the lab: it's the key you'll filter on in Dynatrace, route on in OpenPipeline, and use in every query that follows. Use your name so we can identify and give prizes if you complete all the tasks first.
 
-
-See our Syslogs in Dynatrace.  They're mixed in with everything else that is streaming in to our Dynatrace environment.
+Now, if you search for logs in Dynatrace you will see logs from every other source:
 
 ![alt text](img/5-add-field/1-mixed-logs.png)
 
