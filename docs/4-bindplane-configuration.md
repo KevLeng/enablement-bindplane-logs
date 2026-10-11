@@ -2,12 +2,12 @@ A Bindplane **Configuration** is a reusable, version-controlled definition of a 
 
 In this section you build your first configuration: four sources and one destination.
 
-| Source | Collects | Setting |
-|---|---|---|
-| **File** | Linux host logs | Three paths, listed in step 2 |
-| **Syslog** | PAN-OS firewall records | Defaults |
-| **NetFlow** | Flow records | Defaults |
-| **Bindplane Collector** | The collector's own logs and metrics | Defaults |
+| Source | Signal Type | Collects | Setting |
+|---|---|---|---|
+| **File** | Log | Linux host logs | Three paths, listed in step 2 |
+| **Syslog** | Log | Firewall records | Defaults |
+| **NetFlow** | Log | Flow records | Defaults |
+| **Bindplane Collector** | Metric | The collector's own logs and metrics | Defaults |
 
 | Destination | Sends to |
 |---|---|
