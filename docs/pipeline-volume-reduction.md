@@ -33,7 +33,7 @@ Reducing volume in the pipeline lowers network, storage, and query costs at ever
 
 Screenshot of the conditions:
 
-![PAN-OS CSV Condition](img/pipeline-field-extraction/parse-csv-condition.png)
+![PAN-OS CSV Condition](img/volume-reduction/parse-csv-condition.png)
 
 - Click inside `Body Fields` and select `message`. This means that when the above conditions are met, the `message` field inside `body` will be dropped.
 

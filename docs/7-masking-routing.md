@@ -41,6 +41,7 @@ After the rollout is complete, click on the new node so we can add the processor
 2. Search for the `Redact Sensitive Data` processor in the list
 3. Select it when it surfaces
 
+
 ![Redact Sensitive Data Processor](img/7-masking-routing/2-redact-processor.png)
 
 !!! tip "Credential Regex"

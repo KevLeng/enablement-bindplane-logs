@@ -36,8 +36,15 @@ Once the dialog for the connector opens, edit the configuration:
 3. Add the attribute from our log for the key that we masked `bch_access_key_id`.  This will add a dimension to the metric that we can split or summarize by.
 4. Click "Save" to create it.
 
-You should see the connector like below:
+Configuration:
+
+![Config of Signal to Metrics](img/8-metric-extraction/add-signal-2-metric-connector.png)
+
+Once you save, you should see the connector like below:
+
+
 ![Signal to Metrics](img/8-metric-extraction/02-signal-to-metrics.png)
+
 
 
 ### Metrics Pipeline
