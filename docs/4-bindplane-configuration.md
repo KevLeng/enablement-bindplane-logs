@@ -177,6 +177,21 @@ The pipeline graph shows all four sources converging on the Dynatrace destinatio
 
 ![Pipeline graph with all four sources](img/4-bindplane-configuration/6-view-pipeline-with-bindplane-collector-source.png)
 
+#### 8a. Add a cumulative-to-delta Processor to Bindplane self-telemetry metrics
+
+We are going to test who configures these in the lab first and to capture those metrics and many useful self-telemetry metrics, we need to send them to Dynatrace. Dynatrace and many other platforms accepts only delta metrics and thus the OTel metics have to be converted using the cumulative-to-delta processor.
+
+1. Scroll down to **Metrics** section of the pipeline.
+2. Click on the processor node close the Bindplane Collector.
+3. Click on **Add Processor**
+4. Search for **Cumulative to Delta** Transform processor.
+5. Accept all defaults, optionally give it a name and **Save** the processor
+
+View the below animation if you want to see how to add:
+
+![Pipeline graph with all four sources](img/4-bindplane-configuration/10-cumulative-to-delta.gif)
+
+
 !!! tip "Throughput reads 0 B/m until an collectors is attached"
     The percentages on each link are the share of data flowing down that path. They stay at zero until you complete the next step, so do not read anything into them yet.
 
@@ -216,6 +231,7 @@ Config which has errors: Fix this before you proceed!
 
 !!! tip "Good Configuration"
     Below is a screenshot where there are no telemetry being dropped and you notice only `info` and `warn` which you can ignore
+
 
 ![Good config](img/4-bindplane-configuration/good-destination.gif)
 
