@@ -6,7 +6,7 @@ Bindplane's live preview shows each record **before** and **after** the processo
 
 You will be adding `project: <yourname>` (for example `project: TonyStark`). Use the same value everywhere in the lab: it's the key you'll filter on in Dynatrace, route on in OpenPipeline, and use in every query that follows. Use your name so we can identify and give prizes if you complete all the tasks first.
 
-Now, if you search for logs in Dynatrace you will see logs from every other source:
+Now, if you search for logs in Dynatrace you will see logs from every source:
 
 ![alt text](img/5-add-field/1-mixed-logs.png)
 
