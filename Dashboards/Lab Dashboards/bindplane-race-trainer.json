@@ -1,0 +1,365 @@
+{
+ "version": 21,
+ "variables": [
+  {
+   "key": "Exclude",
+   "type": "query",
+   "visible": true,
+   "editable": true,
+   "multiple": true,
+   "input": "fetch logs\n| filter isNotNull(project) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n| summarize n = count(), by: { project }\n| fields project\n| append [ data record(project = \"— none —\") ]\n| sort project asc",
+   "defaultValue": [
+    "MACK"
+   ]
+  },
+  {
+   "key": "ExcludeCluster",
+   "type": "query",
+   "visible": true,
+   "editable": true,
+   "multiple": true,
+   "input": "fetch logs\n| filter k8s.namespace.name == \"astroshop\" and matchesPhrase(content, \"Transaction complete.\")\n| fieldsAdd participant = if(startsWith(k8s.cluster.name, \"bindplane-logs-\") and stringLength(k8s.cluster.name) > 24, substring(k8s.cluster.name, from: 15, to: stringLength(k8s.cluster.name) - 9), else: k8s.cluster.name)\n| summarize n = count(), by: { participant }\n| fields participant\n| append [ data record(participant = \"— none —\") ]\n| sort participant asc",
+   "defaultValue": [
+    "amrith-raj"
+   ]
+  }
+ ],
+ "tiles": {
+  "0": {
+   "type": "markdown",
+   "content": "# 🏁 Bindplane Lab Race — trainer view\nEach participant is identified by their **`project`** value. A milestone counts the first time its **effect** reaches Dynatrace, not when it is configured. Collector-level milestones (pipeline live, cumulative to delta, signal to metric) are credited through the collector's `host.name`, mapped to the project it sends.\n\n**Before the session:** set the timeframe to start at the session start (rehearsal data must not count), and pick trainers/colleagues in **Exclude**. Ranking = most milestones, then earliest time of the last milestone.\n\n| # | Milestone | Counts when… |\n|---|---|---|\n| 01 | Pipeline live | First lab log (PAN-OS syslog or syslog/audit.log/fail2ban.log file) from your collector host |\n| 02 | Cumulative to delta | Collector self-metrics reach Dynatrace (they are rejected until delta temporality) |\n| 03 | Project tagged | First lab log carrying your project attribute |\n| 04 | Parse CSV | PAN-OS records arrive with named pan.* fields |\n| 05 | Delete body.message | Parsed PAN-OS records arrive without the raw CSV |\n| 06 | Sampling | Allow share of parsed traffic drops below 80% (baseline ~93%) |\n| 07 | Masking | BCH access key and secret arrive hashed (64+ hex chars), never raw |\n| 08 | Parse regex | bch_access_key_id attribute extracted from the hashed value |\n| 09 | Signal to metric | log.exposed_bch_credentials.count arrives with a hashed key dimension |\n| 10 | OpenPipeline syslog | Host syslog records (file source) arrive with syslog.* fields from the OpenPipeline Syslog bundle |"
+  },
+  "1": {
+   "type": "markdown",
+   "content": "## Class overview"
+  },
+  "2": {
+   "title": "Participants",
+   "type": "data",
+   "query": "fetch logs\n| filter isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n| summarize first_ts = min(timestamp), by: { host.name }\n| fields host.name, milestone = \"01 Pipeline live\", first_ts\n| append [\n  timeseries v = avg(otelcol_process_memory_rss), by: { host.name }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(isNotNull(v[]), iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"02 Cumulative to delta\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| append [\n  timeseries v = sum(log.exposed_bch_credentials.count), by: { host.name, bch_access_key_id }, interval: 1m\n  | filter isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\")\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(v[] > 0, iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"09 Signal to metric\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter isNotNull(m_project)\n| fields project = m_project, milestone, first_ts\n| append [\n  fetch logs\n  | filter isNotNull(project) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | parse content, \"LD 'BCH_ACCESS_KEY_ID=' NSPACE:bch_ak SPACE 'BCH_SECRET_ACCESS_KEY=' NSPACE:bch_sk\"\n  | fieldsAdd bch_sk = replaceString(bch_sk, \"\\\"\", \"\")\n  | summarize {\n      m03 = min(if(true, timestamp)),\n      m04 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action), timestamp)),\n      m05 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action) and (isNull(content) or content == \"\"), timestamp)),\n      m07 = min(if(log.file.name == \"audit.log\" and isNotNull(bch_ak) and not startsWith(bch_ak, \"BCHK\") and stringLength(bch_ak) >= 64 and stringLength(bch_sk) >= 64, timestamp)),\n      m08 = min(if(isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\"), timestamp)),\n      m10 = min(if(log.file.name == \"syslog\" and isNotNull(syslog.severity), timestamp))\n    }, by: { project }\n  | fieldsAdd ev = array(\n      record(milestone = \"03 Project tagged\", first_ts = m03),\n      record(milestone = \"04 Parse CSV\", first_ts = m04),\n      record(milestone = \"05 Delete body.message\", first_ts = m05),\n      record(milestone = \"07 Masking\", first_ts = m07),\n      record(milestone = \"08 Parse regex\", first_ts = m08),\n      record(milestone = \"10 OpenPipeline syslog\", first_ts = m10))\n  | expand ev\n  | fields project, milestone = ev[milestone], first_ts = ev[first_ts]\n  | filter isNotNull(first_ts)\n]\n| append [\n  fetch logs\n  | filter isNotNull(project) and appname == \"PAN-OS\" and isNotNull(pan.action)\n  | makeTimeseries { allow = countIf(pan.action == \"allow\"), total = count() }, by: { project }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(total[] >= 30 and allow[] / total[] < 0.8, iIndex()))))\n  | filter isNotNull(idx)\n  | fields project, milestone = \"06 Sampling\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| summarize first_ts = min(first_ts), by: { project, milestone }\n| filter not in(project, array($Exclude))\n| summarize {\n    score = countDistinct(milestone),\n    started = min(first_ts),\n    last = max(first_ts),\n    last_precise = max(if(in(milestone, array(\"01 Pipeline live\", \"03 Project tagged\", \"04 Parse CSV\", \"05 Delete body.message\", \"07 Masking\", \"08 Parse regex\", \"10 OpenPipeline syslog\")), first_ts)),\n    c01 = min(if(milestone == \"01 Pipeline live\", first_ts)),\n    c02 = min(if(milestone == \"02 Cumulative to delta\", first_ts)),\n    c03 = min(if(milestone == \"03 Project tagged\", first_ts)),\n    c04 = min(if(milestone == \"04 Parse CSV\", first_ts)),\n    c05 = min(if(milestone == \"05 Delete body.message\", first_ts)),\n    c06 = min(if(milestone == \"06 Sampling\", first_ts)),\n    c07 = min(if(milestone == \"07 Masking\", first_ts)),\n    c08 = min(if(milestone == \"08 Parse regex\", first_ts)),\n    c09 = min(if(milestone == \"09 Signal to metric\", first_ts)),\n    c10 = min(if(milestone == \"10 OpenPipeline syslog\", first_ts))\n  }, by: { project }\n| summarize v = count()",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "on the board",
+     "recordField": "v"
+    }
+   }
+  },
+  "3": {
+   "title": "Online now",
+   "type": "data",
+   "query": "fetch logs, from: now()-5m\n| filter isNotNull(project) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\"))) and not in(project, array($Exclude))\n| summarize v = countDistinct(project)",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "sending in last 5 min",
+     "recordField": "v"
+    }
+   }
+  },
+  "4": {
+   "title": "Finished",
+   "type": "data",
+   "query": "fetch logs\n| filter isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n| summarize first_ts = min(timestamp), by: { host.name }\n| fields host.name, milestone = \"01 Pipeline live\", first_ts\n| append [\n  timeseries v = avg(otelcol_process_memory_rss), by: { host.name }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(isNotNull(v[]), iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"02 Cumulative to delta\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| append [\n  timeseries v = sum(log.exposed_bch_credentials.count), by: { host.name, bch_access_key_id }, interval: 1m\n  | filter isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\")\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(v[] > 0, iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"09 Signal to metric\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter isNotNull(m_project)\n| fields project = m_project, milestone, first_ts\n| append [\n  fetch logs\n  | filter isNotNull(project) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | parse content, \"LD 'BCH_ACCESS_KEY_ID=' NSPACE:bch_ak SPACE 'BCH_SECRET_ACCESS_KEY=' NSPACE:bch_sk\"\n  | fieldsAdd bch_sk = replaceString(bch_sk, \"\\\"\", \"\")\n  | summarize {\n      m03 = min(if(true, timestamp)),\n      m04 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action), timestamp)),\n      m05 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action) and (isNull(content) or content == \"\"), timestamp)),\n      m07 = min(if(log.file.name == \"audit.log\" and isNotNull(bch_ak) and not startsWith(bch_ak, \"BCHK\") and stringLength(bch_ak) >= 64 and stringLength(bch_sk) >= 64, timestamp)),\n      m08 = min(if(isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\"), timestamp)),\n      m10 = min(if(log.file.name == \"syslog\" and isNotNull(syslog.severity), timestamp))\n    }, by: { project }\n  | fieldsAdd ev = array(\n      record(milestone = \"03 Project tagged\", first_ts = m03),\n      record(milestone = \"04 Parse CSV\", first_ts = m04),\n      record(milestone = \"05 Delete body.message\", first_ts = m05),\n      record(milestone = \"07 Masking\", first_ts = m07),\n      record(milestone = \"08 Parse regex\", first_ts = m08),\n      record(milestone = \"10 OpenPipeline syslog\", first_ts = m10))\n  | expand ev\n  | fields project, milestone = ev[milestone], first_ts = ev[first_ts]\n  | filter isNotNull(first_ts)\n]\n| append [\n  fetch logs\n  | filter isNotNull(project) and appname == \"PAN-OS\" and isNotNull(pan.action)\n  | makeTimeseries { allow = countIf(pan.action == \"allow\"), total = count() }, by: { project }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(total[] >= 30 and allow[] / total[] < 0.8, iIndex()))))\n  | filter isNotNull(idx)\n  | fields project, milestone = \"06 Sampling\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| summarize first_ts = min(first_ts), by: { project, milestone }\n| filter not in(project, array($Exclude))\n| summarize {\n    score = countDistinct(milestone),\n    started = min(first_ts),\n    last = max(first_ts),\n    last_precise = max(if(in(milestone, array(\"01 Pipeline live\", \"03 Project tagged\", \"04 Parse CSV\", \"05 Delete body.message\", \"07 Masking\", \"08 Parse regex\", \"10 OpenPipeline syslog\")), first_ts)),\n    c01 = min(if(milestone == \"01 Pipeline live\", first_ts)),\n    c02 = min(if(milestone == \"02 Cumulative to delta\", first_ts)),\n    c03 = min(if(milestone == \"03 Project tagged\", first_ts)),\n    c04 = min(if(milestone == \"04 Parse CSV\", first_ts)),\n    c05 = min(if(milestone == \"05 Delete body.message\", first_ts)),\n    c06 = min(if(milestone == \"06 Sampling\", first_ts)),\n    c07 = min(if(milestone == \"07 Masking\", first_ts)),\n    c08 = min(if(milestone == \"08 Parse regex\", first_ts)),\n    c09 = min(if(milestone == \"09 Signal to metric\", first_ts)),\n    c10 = min(if(milestone == \"10 OpenPipeline syslog\", first_ts))\n  }, by: { project }\n| summarize v = countIf(score == 10)",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "all 10 milestones",
+     "recordField": "v"
+    }
+   }
+  },
+  "5": {
+   "title": "Average progress",
+   "type": "data",
+   "query": "fetch logs\n| filter isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n| summarize first_ts = min(timestamp), by: { host.name }\n| fields host.name, milestone = \"01 Pipeline live\", first_ts\n| append [\n  timeseries v = avg(otelcol_process_memory_rss), by: { host.name }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(isNotNull(v[]), iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"02 Cumulative to delta\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| append [\n  timeseries v = sum(log.exposed_bch_credentials.count), by: { host.name, bch_access_key_id }, interval: 1m\n  | filter isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\")\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(v[] > 0, iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"09 Signal to metric\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter isNotNull(m_project)\n| fields project = m_project, milestone, first_ts\n| append [\n  fetch logs\n  | filter isNotNull(project) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | parse content, \"LD 'BCH_ACCESS_KEY_ID=' NSPACE:bch_ak SPACE 'BCH_SECRET_ACCESS_KEY=' NSPACE:bch_sk\"\n  | fieldsAdd bch_sk = replaceString(bch_sk, \"\\\"\", \"\")\n  | summarize {\n      m03 = min(if(true, timestamp)),\n      m04 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action), timestamp)),\n      m05 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action) and (isNull(content) or content == \"\"), timestamp)),\n      m07 = min(if(log.file.name == \"audit.log\" and isNotNull(bch_ak) and not startsWith(bch_ak, \"BCHK\") and stringLength(bch_ak) >= 64 and stringLength(bch_sk) >= 64, timestamp)),\n      m08 = min(if(isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\"), timestamp)),\n      m10 = min(if(log.file.name == \"syslog\" and isNotNull(syslog.severity), timestamp))\n    }, by: { project }\n  | fieldsAdd ev = array(\n      record(milestone = \"03 Project tagged\", first_ts = m03),\n      record(milestone = \"04 Parse CSV\", first_ts = m04),\n      record(milestone = \"05 Delete body.message\", first_ts = m05),\n      record(milestone = \"07 Masking\", first_ts = m07),\n      record(milestone = \"08 Parse regex\", first_ts = m08),\n      record(milestone = \"10 OpenPipeline syslog\", first_ts = m10))\n  | expand ev\n  | fields project, milestone = ev[milestone], first_ts = ev[first_ts]\n  | filter isNotNull(first_ts)\n]\n| append [\n  fetch logs\n  | filter isNotNull(project) and appname == \"PAN-OS\" and isNotNull(pan.action)\n  | makeTimeseries { allow = countIf(pan.action == \"allow\"), total = count() }, by: { project }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(total[] >= 30 and allow[] / total[] < 0.8, iIndex()))))\n  | filter isNotNull(idx)\n  | fields project, milestone = \"06 Sampling\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| summarize first_ts = min(first_ts), by: { project, milestone }\n| filter not in(project, array($Exclude))\n| summarize {\n    score = countDistinct(milestone),\n    started = min(first_ts),\n    last = max(first_ts),\n    last_precise = max(if(in(milestone, array(\"01 Pipeline live\", \"03 Project tagged\", \"04 Parse CSV\", \"05 Delete body.message\", \"07 Masking\", \"08 Parse regex\", \"10 OpenPipeline syslog\")), first_ts)),\n    c01 = min(if(milestone == \"01 Pipeline live\", first_ts)),\n    c02 = min(if(milestone == \"02 Cumulative to delta\", first_ts)),\n    c03 = min(if(milestone == \"03 Project tagged\", first_ts)),\n    c04 = min(if(milestone == \"04 Parse CSV\", first_ts)),\n    c05 = min(if(milestone == \"05 Delete body.message\", first_ts)),\n    c06 = min(if(milestone == \"06 Sampling\", first_ts)),\n    c07 = min(if(milestone == \"07 Masking\", first_ts)),\n    c08 = min(if(milestone == \"08 Parse regex\", first_ts)),\n    c09 = min(if(milestone == \"09 Signal to metric\", first_ts)),\n    c10 = min(if(milestone == \"10 OpenPipeline syslog\", first_ts))\n  }, by: { project }\n| summarize v = round(avg(score), decimals: 1)",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "milestones out of 10",
+     "recordField": "v"
+    }
+   }
+  },
+  "6": {
+   "title": "Current leader",
+   "type": "data",
+   "query": "fetch logs\n| filter isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n| summarize first_ts = min(timestamp), by: { host.name }\n| fields host.name, milestone = \"01 Pipeline live\", first_ts\n| append [\n  timeseries v = avg(otelcol_process_memory_rss), by: { host.name }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(isNotNull(v[]), iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"02 Cumulative to delta\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| append [\n  timeseries v = sum(log.exposed_bch_credentials.count), by: { host.name, bch_access_key_id }, interval: 1m\n  | filter isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\")\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(v[] > 0, iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"09 Signal to metric\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter isNotNull(m_project)\n| fields project = m_project, milestone, first_ts\n| append [\n  fetch logs\n  | filter isNotNull(project) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | parse content, \"LD 'BCH_ACCESS_KEY_ID=' NSPACE:bch_ak SPACE 'BCH_SECRET_ACCESS_KEY=' NSPACE:bch_sk\"\n  | fieldsAdd bch_sk = replaceString(bch_sk, \"\\\"\", \"\")\n  | summarize {\n      m03 = min(if(true, timestamp)),\n      m04 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action), timestamp)),\n      m05 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action) and (isNull(content) or content == \"\"), timestamp)),\n      m07 = min(if(log.file.name == \"audit.log\" and isNotNull(bch_ak) and not startsWith(bch_ak, \"BCHK\") and stringLength(bch_ak) >= 64 and stringLength(bch_sk) >= 64, timestamp)),\n      m08 = min(if(isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\"), timestamp)),\n      m10 = min(if(log.file.name == \"syslog\" and isNotNull(syslog.severity), timestamp))\n    }, by: { project }\n  | fieldsAdd ev = array(\n      record(milestone = \"03 Project tagged\", first_ts = m03),\n      record(milestone = \"04 Parse CSV\", first_ts = m04),\n      record(milestone = \"05 Delete body.message\", first_ts = m05),\n      record(milestone = \"07 Masking\", first_ts = m07),\n      record(milestone = \"08 Parse regex\", first_ts = m08),\n      record(milestone = \"10 OpenPipeline syslog\", first_ts = m10))\n  | expand ev\n  | fields project, milestone = ev[milestone], first_ts = ev[first_ts]\n  | filter isNotNull(first_ts)\n]\n| append [\n  fetch logs\n  | filter isNotNull(project) and appname == \"PAN-OS\" and isNotNull(pan.action)\n  | makeTimeseries { allow = countIf(pan.action == \"allow\"), total = count() }, by: { project }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(total[] >= 30 and allow[] / total[] < 0.8, iIndex()))))\n  | filter isNotNull(idx)\n  | fields project, milestone = \"06 Sampling\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| summarize first_ts = min(first_ts), by: { project, milestone }\n| filter not in(project, array($Exclude))\n| summarize {\n    score = countDistinct(milestone),\n    started = min(first_ts),\n    last = max(first_ts),\n    last_precise = max(if(in(milestone, array(\"01 Pipeline live\", \"03 Project tagged\", \"04 Parse CSV\", \"05 Delete body.message\", \"07 Masking\", \"08 Parse regex\", \"10 OpenPipeline syslog\")), first_ts)),\n    c01 = min(if(milestone == \"01 Pipeline live\", first_ts)),\n    c02 = min(if(milestone == \"02 Cumulative to delta\", first_ts)),\n    c03 = min(if(milestone == \"03 Project tagged\", first_ts)),\n    c04 = min(if(milestone == \"04 Parse CSV\", first_ts)),\n    c05 = min(if(milestone == \"05 Delete body.message\", first_ts)),\n    c06 = min(if(milestone == \"06 Sampling\", first_ts)),\n    c07 = min(if(milestone == \"07 Masking\", first_ts)),\n    c08 = min(if(milestone == \"08 Parse regex\", first_ts)),\n    c09 = min(if(milestone == \"09 Signal to metric\", first_ts)),\n    c10 = min(if(milestone == \"10 OpenPipeline syslog\", first_ts))\n  }, by: { project }\n| sort score desc, last asc, last_precise asc\n| limit 1\n| fields v = project",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "most milestones, earliest",
+     "recordField": "v"
+    }
+   }
+  },
+  "7": {
+   "title": "Untagged collectors",
+   "type": "data",
+   "query": "fetch logs\n| filter isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n| summarize tagged = countIf(isNotNull(project)), by: { host.name }\n| filter tagged == 0\n| summarize v = count()",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "lab hosts with no project yet",
+     "recordField": "v",
+     "colorThresholdTarget": "background"
+    },
+    "coloring": {
+     "colorRules": [
+      {
+       "value": 0,
+       "comparator": ">",
+       "field": "v",
+       "colorMode": "custom-color",
+       "customColor": {
+        "Default": "var(--dt-colors-charts-status-critical-default, #c4233b)"
+       }
+      },
+      {
+       "value": 0,
+       "comparator": "≤",
+       "field": "v",
+       "colorMode": "custom-color",
+       "customColor": {
+        "Default": "var(--dt-colors-charts-status-ideal-default, #2f6862)"
+       }
+      }
+     ]
+    }
+   }
+  },
+  "8": {
+   "type": "markdown",
+   "content": "## 🏆 Leaderboard"
+  },
+  "9": {
+   "title": "Leaderboard — ranked by milestones, then by who got there first",
+   "type": "data",
+   "query": "fetch logs\n| filter isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n| summarize first_ts = min(timestamp), by: { host.name }\n| fields host.name, milestone = \"01 Pipeline live\", first_ts\n| append [\n  timeseries v = avg(otelcol_process_memory_rss), by: { host.name }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(isNotNull(v[]), iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"02 Cumulative to delta\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| append [\n  timeseries v = sum(log.exposed_bch_credentials.count), by: { host.name, bch_access_key_id }, interval: 1m\n  | filter isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\")\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(v[] > 0, iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"09 Signal to metric\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter isNotNull(m_project)\n| fields project = m_project, milestone, first_ts\n| append [\n  fetch logs\n  | filter isNotNull(project) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | parse content, \"LD 'BCH_ACCESS_KEY_ID=' NSPACE:bch_ak SPACE 'BCH_SECRET_ACCESS_KEY=' NSPACE:bch_sk\"\n  | fieldsAdd bch_sk = replaceString(bch_sk, \"\\\"\", \"\")\n  | summarize {\n      m03 = min(if(true, timestamp)),\n      m04 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action), timestamp)),\n      m05 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action) and (isNull(content) or content == \"\"), timestamp)),\n      m07 = min(if(log.file.name == \"audit.log\" and isNotNull(bch_ak) and not startsWith(bch_ak, \"BCHK\") and stringLength(bch_ak) >= 64 and stringLength(bch_sk) >= 64, timestamp)),\n      m08 = min(if(isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\"), timestamp)),\n      m10 = min(if(log.file.name == \"syslog\" and isNotNull(syslog.severity), timestamp))\n    }, by: { project }\n  | fieldsAdd ev = array(\n      record(milestone = \"03 Project tagged\", first_ts = m03),\n      record(milestone = \"04 Parse CSV\", first_ts = m04),\n      record(milestone = \"05 Delete body.message\", first_ts = m05),\n      record(milestone = \"07 Masking\", first_ts = m07),\n      record(milestone = \"08 Parse regex\", first_ts = m08),\n      record(milestone = \"10 OpenPipeline syslog\", first_ts = m10))\n  | expand ev\n  | fields project, milestone = ev[milestone], first_ts = ev[first_ts]\n  | filter isNotNull(first_ts)\n]\n| append [\n  fetch logs\n  | filter isNotNull(project) and appname == \"PAN-OS\" and isNotNull(pan.action)\n  | makeTimeseries { allow = countIf(pan.action == \"allow\"), total = count() }, by: { project }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(total[] >= 30 and allow[] / total[] < 0.8, iIndex()))))\n  | filter isNotNull(idx)\n  | fields project, milestone = \"06 Sampling\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| summarize first_ts = min(first_ts), by: { project, milestone }\n| filter not in(project, array($Exclude))\n| summarize {\n    score = countDistinct(milestone),\n    started = min(first_ts),\n    last = max(first_ts),\n    last_precise = max(if(in(milestone, array(\"01 Pipeline live\", \"03 Project tagged\", \"04 Parse CSV\", \"05 Delete body.message\", \"07 Masking\", \"08 Parse regex\", \"10 OpenPipeline syslog\")), first_ts)),\n    c01 = min(if(milestone == \"01 Pipeline live\", first_ts)),\n    c02 = min(if(milestone == \"02 Cumulative to delta\", first_ts)),\n    c03 = min(if(milestone == \"03 Project tagged\", first_ts)),\n    c04 = min(if(milestone == \"04 Parse CSV\", first_ts)),\n    c05 = min(if(milestone == \"05 Delete body.message\", first_ts)),\n    c06 = min(if(milestone == \"06 Sampling\", first_ts)),\n    c07 = min(if(milestone == \"07 Masking\", first_ts)),\n    c08 = min(if(milestone == \"08 Parse regex\", first_ts)),\n    c09 = min(if(milestone == \"09 Signal to metric\", first_ts)),\n    c10 = min(if(milestone == \"10 OpenPipeline syslog\", first_ts))\n  }, by: { project }\n| fieldsAdd finished = if(score == 10, last)\n| fieldsAdd\n    `Pipeline live` = if(isNull(c01), \"⬜\", else: \"✅\"),\n    `Cumulative to delta` = if(isNull(c02), \"⬜\", else: \"✅\"),\n    `Project tagged` = if(isNull(c03), \"⬜\", else: \"✅\"),\n    `Parse CSV` = if(isNull(c04), \"⬜\", else: \"✅\"),\n    `Delete body.message` = if(isNull(c05), \"⬜\", else: \"✅\"),\n    `Sampling` = if(isNull(c06), \"⬜\", else: \"✅\"),\n    `Masking` = if(isNull(c07), \"⬜\", else: \"✅\"),\n    `Parse regex` = if(isNull(c08), \"⬜\", else: \"✅\"),\n    `Signal to metric` = if(isNull(c09), \"⬜\", else: \"✅\"),\n    `OpenPipeline syslog` = if(isNull(c10), \"⬜\", else: \"✅\")\n| sort score desc, last asc, last_precise asc\n| fields participant = project, score, `Pipeline live`, `Cumulative to delta`, `Project tagged`, `Parse CSV`, `Delete body.message`, `Sampling`, `Masking`, `Parse regex`, `Signal to metric`, `OpenPipeline syslog`, last_milestone_at = last, finished",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "10": {
+   "title": "🏆 Podium — first to finish everything",
+   "type": "data",
+   "query": "fetch logs\n| filter isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n| summarize first_ts = min(timestamp), by: { host.name }\n| fields host.name, milestone = \"01 Pipeline live\", first_ts\n| append [\n  timeseries v = avg(otelcol_process_memory_rss), by: { host.name }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(isNotNull(v[]), iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"02 Cumulative to delta\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| append [\n  timeseries v = sum(log.exposed_bch_credentials.count), by: { host.name, bch_access_key_id }, interval: 1m\n  | filter isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\")\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(v[] > 0, iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"09 Signal to metric\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter isNotNull(m_project)\n| fields project = m_project, milestone, first_ts\n| append [\n  fetch logs\n  | filter isNotNull(project) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | parse content, \"LD 'BCH_ACCESS_KEY_ID=' NSPACE:bch_ak SPACE 'BCH_SECRET_ACCESS_KEY=' NSPACE:bch_sk\"\n  | fieldsAdd bch_sk = replaceString(bch_sk, \"\\\"\", \"\")\n  | summarize {\n      m03 = min(if(true, timestamp)),\n      m04 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action), timestamp)),\n      m05 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action) and (isNull(content) or content == \"\"), timestamp)),\n      m07 = min(if(log.file.name == \"audit.log\" and isNotNull(bch_ak) and not startsWith(bch_ak, \"BCHK\") and stringLength(bch_ak) >= 64 and stringLength(bch_sk) >= 64, timestamp)),\n      m08 = min(if(isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\"), timestamp)),\n      m10 = min(if(log.file.name == \"syslog\" and isNotNull(syslog.severity), timestamp))\n    }, by: { project }\n  | fieldsAdd ev = array(\n      record(milestone = \"03 Project tagged\", first_ts = m03),\n      record(milestone = \"04 Parse CSV\", first_ts = m04),\n      record(milestone = \"05 Delete body.message\", first_ts = m05),\n      record(milestone = \"07 Masking\", first_ts = m07),\n      record(milestone = \"08 Parse regex\", first_ts = m08),\n      record(milestone = \"10 OpenPipeline syslog\", first_ts = m10))\n  | expand ev\n  | fields project, milestone = ev[milestone], first_ts = ev[first_ts]\n  | filter isNotNull(first_ts)\n]\n| append [\n  fetch logs\n  | filter isNotNull(project) and appname == \"PAN-OS\" and isNotNull(pan.action)\n  | makeTimeseries { allow = countIf(pan.action == \"allow\"), total = count() }, by: { project }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(total[] >= 30 and allow[] / total[] < 0.8, iIndex()))))\n  | filter isNotNull(idx)\n  | fields project, milestone = \"06 Sampling\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| summarize first_ts = min(first_ts), by: { project, milestone }\n| filter not in(project, array($Exclude))\n| summarize {\n    score = countDistinct(milestone),\n    started = min(first_ts),\n    last = max(first_ts),\n    last_precise = max(if(in(milestone, array(\"01 Pipeline live\", \"03 Project tagged\", \"04 Parse CSV\", \"05 Delete body.message\", \"07 Masking\", \"08 Parse regex\", \"10 OpenPipeline syslog\")), first_ts)),\n    c01 = min(if(milestone == \"01 Pipeline live\", first_ts)),\n    c02 = min(if(milestone == \"02 Cumulative to delta\", first_ts)),\n    c03 = min(if(milestone == \"03 Project tagged\", first_ts)),\n    c04 = min(if(milestone == \"04 Parse CSV\", first_ts)),\n    c05 = min(if(milestone == \"05 Delete body.message\", first_ts)),\n    c06 = min(if(milestone == \"06 Sampling\", first_ts)),\n    c07 = min(if(milestone == \"07 Masking\", first_ts)),\n    c08 = min(if(milestone == \"08 Parse regex\", first_ts)),\n    c09 = min(if(milestone == \"09 Signal to metric\", first_ts)),\n    c10 = min(if(milestone == \"10 OpenPipeline syslog\", first_ts))\n  }, by: { project }\n| filter score == 10\n| sort last asc, last_precise asc\n| limit 3\n| fields participant = project, finished_at = last, time_taken = last - started",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "11": {
+   "title": "🥇 First to each milestone",
+   "type": "data",
+   "query": "fetch logs\n| filter isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n| summarize first_ts = min(timestamp), by: { host.name }\n| fields host.name, milestone = \"01 Pipeline live\", first_ts\n| append [\n  timeseries v = avg(otelcol_process_memory_rss), by: { host.name }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(isNotNull(v[]), iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"02 Cumulative to delta\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| append [\n  timeseries v = sum(log.exposed_bch_credentials.count), by: { host.name, bch_access_key_id }, interval: 1m\n  | filter isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\")\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(v[] > 0, iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"09 Signal to metric\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter isNotNull(m_project)\n| fields project = m_project, milestone, first_ts\n| append [\n  fetch logs\n  | filter isNotNull(project) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | parse content, \"LD 'BCH_ACCESS_KEY_ID=' NSPACE:bch_ak SPACE 'BCH_SECRET_ACCESS_KEY=' NSPACE:bch_sk\"\n  | fieldsAdd bch_sk = replaceString(bch_sk, \"\\\"\", \"\")\n  | summarize {\n      m03 = min(if(true, timestamp)),\n      m04 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action), timestamp)),\n      m05 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action) and (isNull(content) or content == \"\"), timestamp)),\n      m07 = min(if(log.file.name == \"audit.log\" and isNotNull(bch_ak) and not startsWith(bch_ak, \"BCHK\") and stringLength(bch_ak) >= 64 and stringLength(bch_sk) >= 64, timestamp)),\n      m08 = min(if(isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\"), timestamp)),\n      m10 = min(if(log.file.name == \"syslog\" and isNotNull(syslog.severity), timestamp))\n    }, by: { project }\n  | fieldsAdd ev = array(\n      record(milestone = \"03 Project tagged\", first_ts = m03),\n      record(milestone = \"04 Parse CSV\", first_ts = m04),\n      record(milestone = \"05 Delete body.message\", first_ts = m05),\n      record(milestone = \"07 Masking\", first_ts = m07),\n      record(milestone = \"08 Parse regex\", first_ts = m08),\n      record(milestone = \"10 OpenPipeline syslog\", first_ts = m10))\n  | expand ev\n  | fields project, milestone = ev[milestone], first_ts = ev[first_ts]\n  | filter isNotNull(first_ts)\n]\n| append [\n  fetch logs\n  | filter isNotNull(project) and appname == \"PAN-OS\" and isNotNull(pan.action)\n  | makeTimeseries { allow = countIf(pan.action == \"allow\"), total = count() }, by: { project }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(total[] >= 30 and allow[] / total[] < 0.8, iIndex()))))\n  | filter isNotNull(idx)\n  | fields project, milestone = \"06 Sampling\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| summarize first_ts = min(first_ts), by: { project, milestone }\n| filter not in(project, array($Exclude))\n| sort first_ts asc\n| summarize { winner = takeFirst(project), achieved_at = takeFirst(first_ts), completed_by = count() }, by: { milestone }\n| sort milestone asc",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "12": {
+   "type": "markdown",
+   "content": "## Progress"
+  },
+  "13": {
+   "title": "Participants per milestone",
+   "type": "data",
+   "query": "fetch logs\n| filter isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n| summarize first_ts = min(timestamp), by: { host.name }\n| fields host.name, milestone = \"01 Pipeline live\", first_ts\n| append [\n  timeseries v = avg(otelcol_process_memory_rss), by: { host.name }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(isNotNull(v[]), iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"02 Cumulative to delta\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| append [\n  timeseries v = sum(log.exposed_bch_credentials.count), by: { host.name, bch_access_key_id }, interval: 1m\n  | filter isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\")\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(v[] > 0, iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"09 Signal to metric\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter isNotNull(m_project)\n| fields project = m_project, milestone, first_ts\n| append [\n  fetch logs\n  | filter isNotNull(project) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | parse content, \"LD 'BCH_ACCESS_KEY_ID=' NSPACE:bch_ak SPACE 'BCH_SECRET_ACCESS_KEY=' NSPACE:bch_sk\"\n  | fieldsAdd bch_sk = replaceString(bch_sk, \"\\\"\", \"\")\n  | summarize {\n      m03 = min(if(true, timestamp)),\n      m04 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action), timestamp)),\n      m05 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action) and (isNull(content) or content == \"\"), timestamp)),\n      m07 = min(if(log.file.name == \"audit.log\" and isNotNull(bch_ak) and not startsWith(bch_ak, \"BCHK\") and stringLength(bch_ak) >= 64 and stringLength(bch_sk) >= 64, timestamp)),\n      m08 = min(if(isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\"), timestamp)),\n      m10 = min(if(log.file.name == \"syslog\" and isNotNull(syslog.severity), timestamp))\n    }, by: { project }\n  | fieldsAdd ev = array(\n      record(milestone = \"03 Project tagged\", first_ts = m03),\n      record(milestone = \"04 Parse CSV\", first_ts = m04),\n      record(milestone = \"05 Delete body.message\", first_ts = m05),\n      record(milestone = \"07 Masking\", first_ts = m07),\n      record(milestone = \"08 Parse regex\", first_ts = m08),\n      record(milestone = \"10 OpenPipeline syslog\", first_ts = m10))\n  | expand ev\n  | fields project, milestone = ev[milestone], first_ts = ev[first_ts]\n  | filter isNotNull(first_ts)\n]\n| append [\n  fetch logs\n  | filter isNotNull(project) and appname == \"PAN-OS\" and isNotNull(pan.action)\n  | makeTimeseries { allow = countIf(pan.action == \"allow\"), total = count() }, by: { project }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(total[] >= 30 and allow[] / total[] < 0.8, iIndex()))))\n  | filter isNotNull(idx)\n  | fields project, milestone = \"06 Sampling\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| summarize first_ts = min(first_ts), by: { project, milestone }\n| filter not in(project, array($Exclude))\n| summarize participants = count(), by: { milestone }\n| sort milestone asc",
+   "visualization": "categoricalBarChart",
+   "visualizationSettings": {}
+  },
+  "14": {
+   "title": "🏎️ The race — milestones completed over time",
+   "type": "data",
+   "query": "fetch logs\n| filter isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n| summarize first_ts = min(timestamp), by: { host.name }\n| fields host.name, milestone = \"01 Pipeline live\", first_ts\n| append [\n  timeseries v = avg(otelcol_process_memory_rss), by: { host.name }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(isNotNull(v[]), iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"02 Cumulative to delta\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| append [\n  timeseries v = sum(log.exposed_bch_credentials.count), by: { host.name, bch_access_key_id }, interval: 1m\n  | filter isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\")\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(v[] > 0, iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"09 Signal to metric\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter isNotNull(m_project)\n| fields project = m_project, milestone, first_ts\n| append [\n  fetch logs\n  | filter isNotNull(project) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | parse content, \"LD 'BCH_ACCESS_KEY_ID=' NSPACE:bch_ak SPACE 'BCH_SECRET_ACCESS_KEY=' NSPACE:bch_sk\"\n  | fieldsAdd bch_sk = replaceString(bch_sk, \"\\\"\", \"\")\n  | summarize {\n      m03 = min(if(true, timestamp)),\n      m04 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action), timestamp)),\n      m05 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action) and (isNull(content) or content == \"\"), timestamp)),\n      m07 = min(if(log.file.name == \"audit.log\" and isNotNull(bch_ak) and not startsWith(bch_ak, \"BCHK\") and stringLength(bch_ak) >= 64 and stringLength(bch_sk) >= 64, timestamp)),\n      m08 = min(if(isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\"), timestamp)),\n      m10 = min(if(log.file.name == \"syslog\" and isNotNull(syslog.severity), timestamp))\n    }, by: { project }\n  | fieldsAdd ev = array(\n      record(milestone = \"03 Project tagged\", first_ts = m03),\n      record(milestone = \"04 Parse CSV\", first_ts = m04),\n      record(milestone = \"05 Delete body.message\", first_ts = m05),\n      record(milestone = \"07 Masking\", first_ts = m07),\n      record(milestone = \"08 Parse regex\", first_ts = m08),\n      record(milestone = \"10 OpenPipeline syslog\", first_ts = m10))\n  | expand ev\n  | fields project, milestone = ev[milestone], first_ts = ev[first_ts]\n  | filter isNotNull(first_ts)\n]\n| append [\n  fetch logs\n  | filter isNotNull(project) and appname == \"PAN-OS\" and isNotNull(pan.action)\n  | makeTimeseries { allow = countIf(pan.action == \"allow\"), total = count() }, by: { project }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(total[] >= 30 and allow[] / total[] < 0.8, iIndex()))))\n  | filter isNotNull(idx)\n  | fields project, milestone = \"06 Sampling\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| summarize first_ts = min(first_ts), by: { project, milestone }\n| filter not in(project, array($Exclude))\n| makeTimeseries m = count(), by: { project }, time: first_ts, interval: 5m\n| fieldsAdd m = arrayCumulativeSum(m)",
+   "visualization": "lineChart",
+   "visualizationSettings": {}
+  },
+  "15": {
+   "title": "📣 Activity feed — newest first",
+   "type": "data",
+   "query": "fetch logs\n| filter isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n| summarize first_ts = min(timestamp), by: { host.name }\n| fields host.name, milestone = \"01 Pipeline live\", first_ts\n| append [\n  timeseries v = avg(otelcol_process_memory_rss), by: { host.name }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(isNotNull(v[]), iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"02 Cumulative to delta\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| append [\n  timeseries v = sum(log.exposed_bch_credentials.count), by: { host.name, bch_access_key_id }, interval: 1m\n  | filter isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\")\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(v[] > 0, iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"09 Signal to metric\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter isNotNull(m_project)\n| fields project = m_project, milestone, first_ts\n| append [\n  fetch logs\n  | filter isNotNull(project) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | parse content, \"LD 'BCH_ACCESS_KEY_ID=' NSPACE:bch_ak SPACE 'BCH_SECRET_ACCESS_KEY=' NSPACE:bch_sk\"\n  | fieldsAdd bch_sk = replaceString(bch_sk, \"\\\"\", \"\")\n  | summarize {\n      m03 = min(if(true, timestamp)),\n      m04 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action), timestamp)),\n      m05 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action) and (isNull(content) or content == \"\"), timestamp)),\n      m07 = min(if(log.file.name == \"audit.log\" and isNotNull(bch_ak) and not startsWith(bch_ak, \"BCHK\") and stringLength(bch_ak) >= 64 and stringLength(bch_sk) >= 64, timestamp)),\n      m08 = min(if(isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\"), timestamp)),\n      m10 = min(if(log.file.name == \"syslog\" and isNotNull(syslog.severity), timestamp))\n    }, by: { project }\n  | fieldsAdd ev = array(\n      record(milestone = \"03 Project tagged\", first_ts = m03),\n      record(milestone = \"04 Parse CSV\", first_ts = m04),\n      record(milestone = \"05 Delete body.message\", first_ts = m05),\n      record(milestone = \"07 Masking\", first_ts = m07),\n      record(milestone = \"08 Parse regex\", first_ts = m08),\n      record(milestone = \"10 OpenPipeline syslog\", first_ts = m10))\n  | expand ev\n  | fields project, milestone = ev[milestone], first_ts = ev[first_ts]\n  | filter isNotNull(first_ts)\n]\n| append [\n  fetch logs\n  | filter isNotNull(project) and appname == \"PAN-OS\" and isNotNull(pan.action)\n  | makeTimeseries { allow = countIf(pan.action == \"allow\"), total = count() }, by: { project }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(total[] >= 30 and allow[] / total[] < 0.8, iIndex()))))\n  | filter isNotNull(idx)\n  | fields project, milestone = \"06 Sampling\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| summarize first_ts = min(first_ts), by: { project, milestone }\n| filter not in(project, array($Exclude))\n| sort first_ts desc\n| fields achieved_at = first_ts, participant = project, milestone",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "16": {
+   "type": "markdown",
+   "content": "## 🛟 Who needs help"
+  },
+  "17": {
+   "title": "Stuck or slow — next milestone and idle time",
+   "type": "data",
+   "query": "fetch logs\n| filter isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n| summarize first_ts = min(timestamp), by: { host.name }\n| fields host.name, milestone = \"01 Pipeline live\", first_ts\n| append [\n  timeseries v = avg(otelcol_process_memory_rss), by: { host.name }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(isNotNull(v[]), iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"02 Cumulative to delta\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| append [\n  timeseries v = sum(log.exposed_bch_credentials.count), by: { host.name, bch_access_key_id }, interval: 1m\n  | filter isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\")\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(v[] > 0, iIndex()))))\n  | filter isNotNull(idx)\n  | fields host.name, milestone = \"09 Signal to metric\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter isNotNull(m_project)\n| fields project = m_project, milestone, first_ts\n| append [\n  fetch logs\n  | filter isNotNull(project) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | parse content, \"LD 'BCH_ACCESS_KEY_ID=' NSPACE:bch_ak SPACE 'BCH_SECRET_ACCESS_KEY=' NSPACE:bch_sk\"\n  | fieldsAdd bch_sk = replaceString(bch_sk, \"\\\"\", \"\")\n  | summarize {\n      m03 = min(if(true, timestamp)),\n      m04 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action), timestamp)),\n      m05 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action) and (isNull(content) or content == \"\"), timestamp)),\n      m07 = min(if(log.file.name == \"audit.log\" and isNotNull(bch_ak) and not startsWith(bch_ak, \"BCHK\") and stringLength(bch_ak) >= 64 and stringLength(bch_sk) >= 64, timestamp)),\n      m08 = min(if(isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\"), timestamp)),\n      m10 = min(if(log.file.name == \"syslog\" and isNotNull(syslog.severity), timestamp))\n    }, by: { project }\n  | fieldsAdd ev = array(\n      record(milestone = \"03 Project tagged\", first_ts = m03),\n      record(milestone = \"04 Parse CSV\", first_ts = m04),\n      record(milestone = \"05 Delete body.message\", first_ts = m05),\n      record(milestone = \"07 Masking\", first_ts = m07),\n      record(milestone = \"08 Parse regex\", first_ts = m08),\n      record(milestone = \"10 OpenPipeline syslog\", first_ts = m10))\n  | expand ev\n  | fields project, milestone = ev[milestone], first_ts = ev[first_ts]\n  | filter isNotNull(first_ts)\n]\n| append [\n  fetch logs\n  | filter isNotNull(project) and appname == \"PAN-OS\" and isNotNull(pan.action)\n  | makeTimeseries { allow = countIf(pan.action == \"allow\"), total = count() }, by: { project }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(total[] >= 30 and allow[] / total[] < 0.8, iIndex()))))\n  | filter isNotNull(idx)\n  | fields project, milestone = \"06 Sampling\", first_ts = timeframe[start] + interval * (idx + 1)\n]\n| summarize first_ts = min(first_ts), by: { project, milestone }\n| filter not in(project, array($Exclude))\n| summarize {\n    score = countDistinct(milestone),\n    started = min(first_ts),\n    last = max(first_ts),\n    last_precise = max(if(in(milestone, array(\"01 Pipeline live\", \"03 Project tagged\", \"04 Parse CSV\", \"05 Delete body.message\", \"07 Masking\", \"08 Parse regex\", \"10 OpenPipeline syslog\")), first_ts)),\n    c01 = min(if(milestone == \"01 Pipeline live\", first_ts)),\n    c02 = min(if(milestone == \"02 Cumulative to delta\", first_ts)),\n    c03 = min(if(milestone == \"03 Project tagged\", first_ts)),\n    c04 = min(if(milestone == \"04 Parse CSV\", first_ts)),\n    c05 = min(if(milestone == \"05 Delete body.message\", first_ts)),\n    c06 = min(if(milestone == \"06 Sampling\", first_ts)),\n    c07 = min(if(milestone == \"07 Masking\", first_ts)),\n    c08 = min(if(milestone == \"08 Parse regex\", first_ts)),\n    c09 = min(if(milestone == \"09 Signal to metric\", first_ts)),\n    c10 = min(if(milestone == \"10 OpenPipeline syslog\", first_ts))\n  }, by: { project }\n| filter score < 10\n| fieldsAdd next_milestone = if(isNull(c01), \"Pipeline live\", else: if(isNull(c02), \"Cumulative to delta\", else: if(isNull(c03), \"Project tagged\", else: if(isNull(c04), \"Parse CSV\", else: if(isNull(c05), \"Delete body.message\", else: if(isNull(c06), \"Sampling\", else: if(isNull(c07), \"Masking\", else: if(isNull(c08), \"Parse regex\", else: if(isNull(c09), \"Signal to metric\", else: if(isNull(c10), \"OpenPipeline syslog\", else: \"🎉 Finished\"))))))))))\n| fieldsAdd idle_min = round((now() - last) / 1m, decimals: 0)\n| sort idle_min desc\n| fields participant = project, score, next_milestone, last_milestone_at = last, idle_min",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "18": {
+   "title": "Collector identity — typos, duplicates, untagged",
+   "type": "data",
+   "query": "fetch logs\n| filter isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n| summarize { projects = collectDistinct(project), last_seen = max(timestamp) }, by: { host.name }\n| fieldsAdd n = arraySize(projects)\n| fieldsAdd issue = if(n == 0, \"❌ No project yet\",\n    else: if(n > 1, \"⚠️ Host sent more than one project name\", else: \"✅ OK\"))\n| sort issue asc\n| fields issue, host.name, projects, last_seen",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "19": {
+   "title": "Project names used by more than one host (duplicate names)",
+   "type": "data",
+   "query": "fetch logs\n| filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n| summarize hosts = collectDistinct(host.name), by: { project }\n| filter arraySize(hosts) > 1",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "20": {
+   "title": "Sampling check — allow share per participant (should drop to ~57%)",
+   "type": "data",
+   "query": "fetch logs\n| filter isNotNull(project) and not in(project, array($Exclude)) and appname == \"PAN-OS\" and isNotNull(pan.action)\n| makeTimeseries { allow = countIf(pan.action == \"allow\"), total = count() }, by: { project }, interval: 1m\n| fieldsAdd allow_share_pct = 100 * allow[] / total[]\n| fields timeframe, interval, project, allow_share_pct",
+   "visualization": "lineChart",
+   "visualizationSettings": {}
+  },
+  "21": {
+   "title": "💳 Payment challenge — OpenPipeline payment field extraction (separate from the race)",
+   "type": "data",
+   "query": "fetch logs\n| filter k8s.namespace.name == \"astroshop\" and matchesPhrase(content, \"Transaction complete.\")\n| fieldsAdd participant = if(startsWith(k8s.cluster.name, \"bindplane-logs-\") and stringLength(k8s.cluster.name) > 24, substring(k8s.cluster.name, from: 15, to: stringLength(k8s.cluster.name) - 9), else: k8s.cluster.name)\n| filter not in(participant, array($ExcludeCluster))\n| summarize {\n    payment_logs = count(),\n    extracted = countIf(isNotNull(app.payment.transactionId)),\n    first_seen = min(timestamp),\n    first_extracted = min(if(isNotNull(app.payment.transactionId), timestamp)),\n    clusters = collectDistinct(k8s.cluster.name)\n  }, by: { participant }\n| fieldsAdd pending = if(isNull(first_extracted), 1, else: 0)\n| fieldsAdd status = if(pending == 0, \"✅ extracting\", else: \"⬜ not yet\")\n| fieldsAdd coverage_pct = round(100.0 * extracted / payment_logs, decimals: 0)\n| sort pending asc, first_extracted asc\n| fields status, participant, first_extracted, payment_logs, extracted, coverage_pct, clusters",
+   "visualization": "table",
+   "visualizationSettings": {}
+  }
+ },
+ "layouts": {
+  "0": {
+   "x": 0,
+   "y": 0,
+   "w": 24,
+   "h": 12
+  },
+  "1": {
+   "x": 0,
+   "y": 12,
+   "w": 24,
+   "h": 1
+  },
+  "2": {
+   "x": 0,
+   "y": 13,
+   "w": 4,
+   "h": 3
+  },
+  "3": {
+   "x": 4,
+   "y": 13,
+   "w": 4,
+   "h": 3
+  },
+  "4": {
+   "x": 8,
+   "y": 13,
+   "w": 4,
+   "h": 3
+  },
+  "5": {
+   "x": 12,
+   "y": 13,
+   "w": 4,
+   "h": 3
+  },
+  "6": {
+   "x": 16,
+   "y": 13,
+   "w": 4,
+   "h": 3
+  },
+  "7": {
+   "x": 20,
+   "y": 13,
+   "w": 4,
+   "h": 3
+  },
+  "8": {
+   "x": 0,
+   "y": 16,
+   "w": 24,
+   "h": 1
+  },
+  "9": {
+   "x": 0,
+   "y": 17,
+   "w": 24,
+   "h": 10
+  },
+  "10": {
+   "x": 0,
+   "y": 27,
+   "w": 12,
+   "h": 8
+  },
+  "11": {
+   "x": 12,
+   "y": 27,
+   "w": 12,
+   "h": 8
+  },
+  "12": {
+   "x": 0,
+   "y": 35,
+   "w": 24,
+   "h": 1
+  },
+  "13": {
+   "x": 0,
+   "y": 36,
+   "w": 12,
+   "h": 8
+  },
+  "14": {
+   "x": 12,
+   "y": 36,
+   "w": 12,
+   "h": 8
+  },
+  "15": {
+   "x": 0,
+   "y": 44,
+   "w": 24,
+   "h": 8
+  },
+  "16": {
+   "x": 0,
+   "y": 52,
+   "w": 24,
+   "h": 1
+  },
+  "17": {
+   "x": 0,
+   "y": 53,
+   "w": 12,
+   "h": 8
+  },
+  "18": {
+   "x": 12,
+   "y": 53,
+   "w": 12,
+   "h": 8
+  },
+  "19": {
+   "x": 0,
+   "y": 61,
+   "w": 12,
+   "h": 8
+  },
+  "20": {
+   "x": 12,
+   "y": 61,
+   "w": 12,
+   "h": 8
+  },
+  "21": {
+   "x": 0,
+   "y": 69,
+   "w": 24,
+   "h": 7
+  }
+ },
+ "settings": {
+  "defaultTimeframe": {
+   "value": {
+    "from": "now()-4h",
+    "to": "now()"
+   },
+   "enabled": true
+  }
+ },
+ "importedWithCode": false
+}

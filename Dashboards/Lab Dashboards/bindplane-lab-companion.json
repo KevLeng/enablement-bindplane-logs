@@ -1,0 +1,411 @@
+{
+ "version": "7",
+ "defaultTimeframe": {
+  "from": "now()-2h",
+  "to": "now()"
+ },
+ "sections": [
+  {
+   "id": "fae9e1af-684f-4b46-8703-4d84568beafa",
+   "type": "markdown",
+   "markdown": "# 🧭 Bindplane Lab — companion notebook\nScroll through this notebook as you work through the lab. Each step says **what you just did**, **what should now be true in Dynatrace**, and gives you a query to **prove it**.\n\n**Before you start:** every query below uses `\"TonyStark\"`. Replace it with the project name you choose in step 3 (use exactly the same spelling everywhere). Until step 3 there is no project name yet, so steps 1–2 find you by your collector's host name instead.\n\nRun a section with ▶ (or Shift + Enter). Timeframe is the last 2 hours; widen it if you started earlier."
+  },
+  {
+   "id": "7fc54599-d11f-4295-a899-b9b1dbdaa474",
+   "type": "markdown",
+   "markdown": "## Step 1 — Install the collector and roll out the configuration\n**You did:** installed the Bindplane collector, built a configuration with four sources (File, Syslog, NetFlow, Bindplane Collector) and a Dynatrace destination, and rolled it out.\n\n**Now true:** logs from your Codespace are arriving. You don't have a label yet, so find your collector by its **host name** (your Codespace name). Lab traffic is the only data with `appname == \"PAN-OS\"` or the lab's file names."
+  },
+  {
+   "id": "6f412c20-bccc-40bb-9a06-0696bf38f229",
+   "type": "dql",
+   "showTitle": false,
+   "state": {
+    "input": {
+     "value": "fetch logs, from: now()-10m\n| filter (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n| summarize records = count(), last_seen = max(timestamp), by: { host.name }\n| sort last_seen desc",
+     "timeframe": {
+      "from": "now()-2h",
+      "to": "now()"
+     }
+    },
+    "visualization": "table",
+    "visualizationSettings": {}
+   }
+  },
+  {
+   "id": "585dfca9-5bc3-43ef-9f7a-9130eb84291c",
+   "type": "markdown",
+   "markdown": "✅ **Success:** your Codespace name appears with a rising `records` count. ❌ Nothing? Check the collector's error logs in Bindplane (destination URL or token)."
+  },
+  {
+   "id": "edada5d3-d430-47e1-9072-33712121ce15",
+   "type": "markdown",
+   "markdown": "## Step 2 — Cumulative to delta\n**You did:** added the cumulative-to-delta processor to the Bindplane Collector source.\n\n**Why:** Dynatrace accepts **delta** metrics over OTLP. The collector reports its own metrics as cumulative counters, so without this processor they are rejected. With it, your collector's self-telemetry starts flowing."
+  },
+  {
+   "id": "7070f45c-e3c4-410e-afeb-bbbedd8be477",
+   "type": "dql",
+   "showTitle": false,
+   "state": {
+    "input": {
+     "value": "timeseries rss = avg(otelcol_process_memory_rss), by: { host.name }, from: now()-30m\n| fieldsAdd memory_mb = rss[] / 1048576\n| fields timeframe, interval, host.name, memory_mb",
+     "timeframe": {
+      "from": "now()-2h",
+      "to": "now()"
+     }
+    },
+    "visualization": "lineChart",
+    "visualizationSettings": {}
+   }
+  },
+  {
+   "id": "4197e929-3d57-41f7-bbba-abba91235cb7",
+   "type": "markdown",
+   "markdown": "✅ **Success:** a line for your host name. ❌ No line after 2–3 minutes? Make sure the processor is on the Bindplane Collector source and the rollout finished."
+  },
+  {
+   "id": "823247b6-5c6c-4161-863e-28490e3ba7ee",
+   "type": "markdown",
+   "markdown": "## Step 3 — Add a field: your project label\n**You did:** added an **Add Fields** processor with `project = <your name>`.\n\n**Why:** a busy tenant holds data from many teams. One consistent label lets you (and OpenPipeline, dashboards, alerts and permissions) find exactly your data with a single filter."
+  },
+  {
+   "id": "aa20c2e8-2b6c-4699-84b1-126a5c6c7f88",
+   "type": "dql",
+   "showTitle": false,
+   "state": {
+    "input": {
+     "value": "fetch logs, from: now()-10m\n| filter project == \"TonyStark\"   // ✏️ change \"TonyStark\" to your project name\n| fieldsAdd source = if(isNotNull(flow.type), \"NetFlow\",\n    else: if(isNotNull(log.file.name), concat(\"File: \", log.file.name),\n    else: if(isNotNull(appname), \"Syslog\", else: \"Other\")))\n| summarize records = count(), by: { source }\n| sort records desc",
+     "timeframe": {
+      "from": "now()-2h",
+      "to": "now()"
+     }
+    },
+    "visualization": "table",
+    "visualizationSettings": {}
+   }
+  },
+  {
+   "id": "4171ce21-2f63-4156-8832-e72870009034",
+   "type": "markdown",
+   "markdown": "✅ **Success:** rows for **Syslog**, **File: syslog / audit.log / fail2ban.log** and **NetFlow**. If a source is missing, check that Add Fields is on the processor node in front of the Dynatrace destination and that you rolled it out."
+  },
+  {
+   "id": "86a154d2-1580-4604-b0b2-ede9b9cf07e6",
+   "type": "markdown",
+   "markdown": "## Step 4 — Parse CSV\n**You did:** added **Parse CSV** to the Syslog source for PAN-OS `TRAFFIC,end` records.\n\n**Why:** the firewall sends one long comma-separated string. Parsed at the edge, it arrives with 38 named `pan.*` fields, so every query, dashboard and alert can use them directly.\n\n**Dynatrace can also parse at query time** (schema on read). Both answers below should match. The difference is that the first one re-parses every record on every query, and the second just reads a field."
+  },
+  {
+   "id": "6cdfa19f-4107-467b-9d07-05fca1b334f7",
+   "type": "dql",
+   "showTitle": false,
+   "state": {
+    "input": {
+     "value": "// Query-time parsing: works on raw records too\nfetch logs, from: now()-30m\n| filter project == \"TonyStark\" and appname == \"PAN-OS\" and contains(content, \",TRAFFIC,end,\")   // ✏️ change \"TonyStark\" to your project name\n| fieldsAdd action = splitString(content, \",\")[31]\n| summarize sessions = count(), by: { action }",
+     "timeframe": {
+      "from": "now()-2h",
+      "to": "now()"
+     }
+    },
+    "visualization": "table",
+    "visualizationSettings": {}
+   }
+  },
+  {
+   "id": "ae131469-5610-4389-a97d-37f7c2316e6f",
+   "type": "dql",
+   "showTitle": false,
+   "state": {
+    "input": {
+     "value": "// Edge parsing: the field is already there\nfetch logs, from: now()-10m\n| filter project == \"TonyStark\" and appname == \"PAN-OS\" and isNotNull(pan.action)   // ✏️ change \"TonyStark\" to your project name\n| sort timestamp desc\n| limit 5\n| fieldsKeep timestamp, \"pan.*\"",
+     "timeframe": {
+      "from": "now()-2h",
+      "to": "now()"
+     }
+    },
+    "visualization": "table",
+    "visualizationSettings": {}
+   }
+  },
+  {
+   "id": "a4d2d49c-c503-4952-ac94-48ab8b637aed",
+   "type": "markdown",
+   "markdown": "✅ **Success:** records with `pan.action`, `pan.app`, `pan.src_ip`… ❌ No `pan.*` fields? Check the two conditions (`appname` **equals** `PAN-OS`, `message` **contains** `,TRAFFIC,end,`) and that you rolled out."
+  },
+  {
+   "id": "ee4aba9a-3402-456e-b8b1-d3e9f1b5dabc",
+   "type": "markdown",
+   "markdown": "## Step 5 — Delete the raw message\n**You did:** added **Delete Fields** to remove `body.message` from parsed records.\n\n**Why:** after parsing, every record carried the same data twice: the raw CSV and the named fields. Dropping the raw copy cuts the size of every firewall record you ship and store."
+  },
+  {
+   "id": "534dd56d-1c19-411e-b7b3-a32265bbb507",
+   "type": "dql",
+   "showTitle": false,
+   "state": {
+    "input": {
+     "value": "fetch logs, from: now()-15m\n| filter project == \"TonyStark\" and appname == \"PAN-OS\" and isNotNull(pan.action)   // ✏️ change \"TonyStark\" to your project name\n| fieldsAdd raw_csv = if(isNull(content) or content == \"\", \"removed ✅\", else: \"still present\")\n| summarize records = count(), last_seen = max(timestamp), by: { raw_csv }",
+     "timeframe": {
+      "from": "now()-2h",
+      "to": "now()"
+     }
+    },
+    "visualization": "table",
+    "visualizationSettings": {}
+   }
+  },
+  {
+   "id": "45f8e691-0e6b-49e4-9c6c-73709b1553fc",
+   "type": "markdown",
+   "markdown": "✅ **Success:** new records show **removed ✅** while `pan.*` fields are still there."
+  },
+  {
+   "id": "2d4331fb-920c-4a6b-b33b-7202e549f6a2",
+   "type": "markdown",
+   "markdown": "## Step 6 — Sample routine traffic (drop ratio 0.9)\n**You did:** added **Sample Logs** for `pan.action == \"allow\"` with a drop ratio of **0.9**.\n\n**Why:** about 93% of firewall sessions are routine allows. Keeping 1 in 10 of those, and **every** deny/drop/reset, cuts volume sharply without losing what security analysts need."
+  },
+  {
+   "id": "91d3954e-1ea9-4efc-8533-cb17877ea4f7",
+   "type": "dql",
+   "showTitle": false,
+   "state": {
+    "input": {
+     "value": "fetch logs, from: now()-30m\n| filter project == \"TonyStark\" and appname == \"PAN-OS\" and isNotNull(pan.action)   // ✏️ change \"TonyStark\" to your project name\n| makeTimeseries { allow = countIf(pan.action == \"allow\"), total = count() }, interval: 1m\n| fieldsAdd allow_share_pct = 100 * allow[] / total[]\n| fields timeframe, interval, allow_share_pct",
+     "timeframe": {
+      "from": "now()-2h",
+      "to": "now()"
+     }
+    },
+    "visualization": "lineChart",
+    "visualizationSettings": {}
+   }
+  },
+  {
+   "id": "1dd11b13-4c21-4baa-83fc-bc97670b2ac0",
+   "type": "markdown",
+   "markdown": "✅ **Success:** the line drops from about **93%** to about **55–60%**. Denies are untouched; only routine allows are sampled."
+  },
+  {
+   "id": "eb62b5ec-2495-4016-970f-833dff180cb7",
+   "type": "markdown",
+   "markdown": "## Step 7 — Mask the leaked credentials\n**You did:** added **Redact Sensitive Data** with hashing, and a **Routing** connector so only credential-bearing logs go through it.\n\n**Why:** a deploy script put cloud keys on the command line, and `auditd` logged them. Hashing them at the edge means the secret never reaches any backend, but the same key still produces the same hash, so you can count and track exposures."
+  },
+  {
+   "id": "d4117b4c-8f25-4660-b1ba-1b6f504f529a",
+   "type": "dql",
+   "showTitle": false,
+   "state": {
+    "input": {
+     "value": "fetch logs, from: now()-1h\n| filter project == \"TonyStark\" and log.file.name == \"audit.log\" and contains(content, \"BCH_ACCESS_KEY_ID=\")   // ✏️ change \"TonyStark\" to your project name\n| parse content, \"LD 'BCH_ACCESS_KEY_ID=' NSPACE:bch_ak SPACE 'BCH_SECRET_ACCESS_KEY=' NSPACE:bch_sk\"\n| fieldsAdd bch_sk = replaceString(bch_sk, \"\\\"\", \"\")\n| fieldsAdd state = if(startsWith(bch_ak, \"BCHK\"), \"🔓 raw\", else: if(stringLength(bch_ak) >= 64 and stringLength(bch_sk) >= 64, \"🔒 hashed\", else: \"⚠️ partial\"))\n| summarize records = count(), first_seen = min(timestamp), last_seen = max(timestamp), by: { state }",
+     "timeframe": {
+      "from": "now()-2h",
+      "to": "now()"
+     }
+    },
+    "visualization": "table",
+    "visualizationSettings": {}
+   }
+  },
+  {
+   "id": "6e5e5221-12fd-4dcc-aad1-02a8941bd5b4",
+   "type": "markdown",
+   "markdown": "✅ **Success:** **🔓 raw** stops and **🔒 hashed** starts at your rollout time. ⚠️ **partial** means only one of the two regex rules matched."
+  },
+  {
+   "id": "795b0ddd-10ea-4af4-bcc6-f5a18dff34ab",
+   "type": "markdown",
+   "markdown": "## Step 8 — Extract the access key\n**You did:** added **Parse with Regex** to pull the (now hashed) access key into the `bch_access_key_id` attribute."
+  },
+  {
+   "id": "c88d979f-3275-477c-96a9-1764d0e9f7d4",
+   "type": "dql",
+   "showTitle": false,
+   "state": {
+    "input": {
+     "value": "fetch logs, from: now()-30m\n| filter project == \"TonyStark\" and isNotNull(bch_access_key_id)   // ✏️ change \"TonyStark\" to your project name\n| summarize sightings = count(), by: { bch_access_key_id }",
+     "timeframe": {
+      "from": "now()-2h",
+      "to": "now()"
+     }
+    },
+    "visualization": "table",
+    "visualizationSettings": {}
+   }
+  },
+  {
+   "id": "88dec38c-425f-4cc6-8db4-0d79059ac41d",
+   "type": "markdown",
+   "markdown": "✅ **Success:** long hex values, never anything starting with `BCHK`. If you see `BCHK…`, your regex runs **before** the masking: move it after."
+  },
+  {
+   "id": "167a3a9b-57d2-4455-ab7b-75cb51329067",
+   "type": "markdown",
+   "markdown": "## Step 9 — Signal to metric\n**You did:** added a **Signal to Metric** connector that counts each credential sighting as `log.exposed_bch_credentials.count`, split by the hashed key.\n\n**Why:** \"how many keys leaked, and how often, over the last week?\" is a time-series question. A metric answers it instantly and cheaply, and can drive alerts, without scanning logs."
+  },
+  {
+   "id": "f117ee8b-9028-4a4a-83ef-5559107647b5",
+   "type": "dql",
+   "showTitle": false,
+   "state": {
+    "input": {
+     "value": "timeseries sightings = sum(log.exposed_bch_credentials.count), by: { bch_access_key_id, host.name }, from: now()-1h\n| fieldsAdd total = arraySum(sightings)",
+     "timeframe": {
+      "from": "now()-2h",
+      "to": "now()"
+     }
+    },
+    "visualization": "table",
+    "visualizationSettings": {}
+   }
+  },
+  {
+   "id": "18b2929c-f600-4d88-9ee5-f33f3b358784",
+   "type": "markdown",
+   "markdown": "✅ **Success:** one row per exposed (hashed) key on your host. Compare `total` with step 8: same answer, from a metric instead of a log scan."
+  },
+  {
+   "id": "e1060ffd-d63a-45ac-99c7-1484c7e669f6",
+   "type": "markdown",
+   "markdown": "## Step 10 — Parse host syslog with OpenPipeline (finish line 🏁)\n**You did:** created an OpenPipeline **pipeline** with the **Syslog technology bundle** (matching `log.file.name == \"syslog\"`), and a **dynamic route** sending logs with your `project` to it.\n\n**Why:** not every parsing job belongs on the collector. OpenPipeline parses **in Dynatrace, on ingest**: no rollout to hosts, and the result is stored with the record. Your host syslog lines arrive with a real severity instead of `NONE`, plus `syslog.appname`, `syslog.proc_id`, `syslog.severity`, `syslog.facility` and `syslog.message`."
+  },
+  {
+   "id": "e59cf9c0-884f-4b5e-8d38-4b29c5a460f0",
+   "type": "dql",
+   "showTitle": false,
+   "state": {
+    "input": {
+     "value": "fetch logs, from: now()-30m\n| filter project == \"TonyStark\" and log.file.name == \"syslog\"   // ✏️ change \"TonyStark\" to your project name\n| fieldsAdd state = if(isNotNull(syslog.severity), \"🔎 parsed by OpenPipeline\", else: \"📄 raw\")\n| fieldsAdd pipeline = dt.openpipeline.pipelines[0]\n| summarize records = count(), first_seen = min(timestamp), last_seen = max(timestamp), by: { state, pipeline }",
+     "timeframe": {
+      "from": "now()-2h",
+      "to": "now()"
+     }
+    },
+    "visualization": "table",
+    "visualizationSettings": {}
+   }
+  },
+  {
+   "id": "c7a0c8f7-9eda-404b-8cad-c3843d84f777",
+   "type": "dql",
+   "showTitle": false,
+   "state": {
+    "input": {
+     "value": "fetch logs, from: now()-10m\n| filter project == \"TonyStark\" and log.file.name == \"syslog\" and isNotNull(syslog.severity)   // ✏️ change \"TonyStark\" to your project name\n| sort timestamp desc\n| limit 5",
+     "timeframe": {
+      "from": "now()-2h",
+      "to": "now()"
+     }
+    },
+    "visualization": "table",
+    "visualizationSettings": {}
+   }
+  },
+  {
+   "id": "ac11f403-c2d7-4829-b4e7-30d52092181b",
+   "type": "markdown",
+   "markdown": "✅ **Success:** new records show **🔎 parsed by OpenPipeline** with `syslog.*` fields and your pipeline's name instead of `opp_default`. ❌ Still `opp_default`? Your route condition doesn't match: check `matchesValue(project, \"<yourname>\")` uses exactly your project name. ❌ Routed but still `NONE`? Check the bundle's matching condition is `matchesValue(log.file.name, \"syslog\")`."
+  },
+  {
+   "id": "d6b07218-ce05-4c5f-bf3d-998ec12d4f78",
+   "type": "markdown",
+   "markdown": "## 💳 Payment challenge — extract payment fields (separate leaderboard)\n**You did:** added an **Add fields** processor to your pipeline that parses the astroshop payment JSON into `app.payment.*` fields.\n\n**Why:** the payment service logs a JSON blob per transaction. Extracted on ingest, it becomes business data: revenue by currency, card mix, loyalty tiers, all queryable without touching the app.\n\nThese logs come from your Kubernetes cluster, not through Bindplane, so they don't carry `project`. They're scored on their own **Payment challenge** table, under the name in your cluster (`bindplane-logs-<name>-<date>`)."
+  },
+  {
+   "id": "b6552de7-3342-44bd-a1a8-3a43633dcc6e",
+   "type": "dql",
+   "showTitle": false,
+   "state": {
+    "input": {
+     "value": "fetch logs, from: now()-30m\n| filter k8s.namespace.name == \"astroshop\" and matchesPhrase(content, \"Transaction complete.\")\n| filter contains(k8s.cluster.name, \"tony-stark\")   // ✏️ change to part of your cluster name\n| fieldsAdd state = if(isNotNull(app.payment.transactionId), \"💳 extracted\", else: \"📄 raw JSON\")\n| summarize records = count(), first_seen = min(timestamp), last_seen = max(timestamp), by: { state }",
+     "timeframe": {
+      "from": "now()-2h",
+      "to": "now()"
+     }
+    },
+    "visualization": "table",
+    "visualizationSettings": {}
+   }
+  },
+  {
+   "id": "97794717-af30-47f3-bb85-22907ad250fc",
+   "type": "dql",
+   "showTitle": false,
+   "state": {
+    "input": {
+     "value": "fetch logs, from: now()-30m\n| filter k8s.namespace.name == \"astroshop\" and isNotNull(app.payment.transactionId)\n| filter contains(k8s.cluster.name, \"tony-stark\")   // ✏️ change to part of your cluster name\n| summarize transactions = count(), revenue = sum(toDouble(app.payment.amount)),\n    by: { app.payment.cardType, app.payment.currencyCode }\n| sort revenue desc",
+     "timeframe": {
+      "from": "now()-2h",
+      "to": "now()"
+     }
+    },
+    "visualization": "table",
+    "visualizationSettings": {}
+   }
+  },
+  {
+   "id": "db58e906-7db4-4f9e-9646-fd154824e4d3",
+   "type": "markdown",
+   "markdown": "✅ **Success:** **💳 extracted** records with card type, currency and amount. ❌ Nothing extracted? Check the route also matches your cluster (`k8s.cluster.name`) and the processor's condition matches namespace `astroshop`, container `payment`."
+  },
+  {
+   "id": "f2910d80-ce14-495d-a149-d2ca6410615c",
+   "type": "markdown",
+   "markdown": "## 🌐 Bonus — explore your NetFlow\nNetFlow arrives as logs with structured `flow.*`, `source.*` and `destination.*` fields. Who is talking to whom?"
+  },
+  {
+   "id": "4058172b-0e95-4367-9a38-b2f5fe92bbcb",
+   "type": "dql",
+   "showTitle": false,
+   "state": {
+    "input": {
+     "value": "fetch logs, from: now()-30m\n| filter project == \"TonyStark\" and receiver == \"netflow\"   // ✏️ change \"TonyStark\" to your project name\n| summarize flows = count(), mb = round(sum(flow.io.bytes) / 1048576, decimals: 1),\n    by: { source.address, destination.address, destination.port }\n| sort mb desc\n| limit 10",
+     "timeframe": {
+      "from": "now()-2h",
+      "to": "now()"
+     }
+    },
+    "visualization": "table",
+    "visualizationSettings": {}
+   }
+  },
+  {
+   "id": "eda94a60-b7fd-462f-94c8-0b084237b8a2",
+   "type": "markdown",
+   "markdown": "## 🛠️ Bonus — your collector's health\nBindplane reports on itself: memory, CPU, records received and sent."
+  },
+  {
+   "id": "c991aa7a-d370-4d76-b3d0-a110de138b25",
+   "type": "dql",
+   "showTitle": false,
+   "state": {
+    "input": {
+     "value": "timeseries accepted = sum(otelcol_receiver_accepted_log_records), by: { host.name, receiver }, from: now()-30m\n| fieldsAdd receiver_type = splitString(receiver, \"/\")[0], total = arraySum(accepted)\n| fields host.name, receiver_type, total",
+     "timeframe": {
+      "from": "now()-2h",
+      "to": "now()"
+     }
+    },
+    "visualization": "table",
+    "visualizationSettings": {}
+   }
+  },
+  {
+   "id": "86131fc9-3f92-482b-9724-b7b7fa832256",
+   "type": "markdown",
+   "markdown": "## ✅ My scorecard\nEvery milestone you have earned so far, from data that actually arrived in Dynatrace. Change `\"TonyStark\"` to your name in the query (it appears several times: use find and replace)."
+  },
+  {
+   "id": "1ccc3d34-ea32-47c7-9f32-40910da4f4d4",
+   "type": "dql",
+   "showTitle": false,
+   "state": {
+    "input": {
+     "value": "data\n  record(milestone = \"01 Pipeline live\"),\n  record(milestone = \"02 Cumulative to delta\"),\n  record(milestone = \"03 Project tagged\"),\n  record(milestone = \"04 Parse CSV\"),\n  record(milestone = \"05 Delete body.message\"),\n  record(milestone = \"06 Sampling\"),\n  record(milestone = \"07 Masking\"),\n  record(milestone = \"08 Parse regex\"),\n  record(milestone = \"09 Signal to metric\"),\n  record(milestone = \"10 OpenPipeline syslog\")\n| lookup [\n  fetch logs\n  | filter isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize first_ts = min(timestamp), by: { host.name }\n  | fields host.name, milestone = \"01 Pipeline live\", first_ts\n  | append [\n    timeseries v = avg(otelcol_process_memory_rss), by: { host.name }, interval: 1m\n    | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(isNotNull(v[]), iIndex()))))\n    | filter isNotNull(idx)\n    | fields host.name, milestone = \"02 Cumulative to delta\", first_ts = timeframe[start] + interval * (idx + 1)\n  ]\n  | append [\n    timeseries v = sum(log.exposed_bch_credentials.count), by: { host.name, bch_access_key_id }, interval: 1m\n    | filter isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\")\n    | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(v[] > 0, iIndex()))))\n    | filter isNotNull(idx)\n    | fields host.name, milestone = \"09 Signal to metric\", first_ts = timeframe[start] + interval * (idx + 1)\n  ]\n  | lookup [\n    fetch logs\n    | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n    | summarize n = count(), by: { host.name, project }\n    | sort n desc\n    | summarize project = takeFirst(project), by: { host.name }\n  ], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n  | filter isNotNull(m_project)\n  | fields project = m_project, milestone, first_ts\n  | filter project == \"TonyStark\"\n  | append [\n    fetch logs\n    | filter isNotNull(project) and project == \"TonyStark\" and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n    | parse content, \"LD 'BCH_ACCESS_KEY_ID=' NSPACE:bch_ak SPACE 'BCH_SECRET_ACCESS_KEY=' NSPACE:bch_sk\"\n    | fieldsAdd bch_sk = replaceString(bch_sk, \"\\\"\", \"\")\n    | summarize {\n        m03 = min(if(true, timestamp)),\n        m04 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action), timestamp)),\n        m05 = min(if(appname == \"PAN-OS\" and isNotNull(pan.action) and (isNull(content) or content == \"\"), timestamp)),\n        m07 = min(if(log.file.name == \"audit.log\" and isNotNull(bch_ak) and not startsWith(bch_ak, \"BCHK\") and stringLength(bch_ak) >= 64 and stringLength(bch_sk) >= 64, timestamp)),\n        m08 = min(if(isNotNull(bch_access_key_id) and not startsWith(bch_access_key_id, \"BCHK\"), timestamp)),\n        m10 = min(if(log.file.name == \"syslog\" and isNotNull(syslog.severity), timestamp))\n      }, by: { project }\n    | fieldsAdd ev = array(\n        record(milestone = \"03 Project tagged\", first_ts = m03),\n        record(milestone = \"04 Parse CSV\", first_ts = m04),\n        record(milestone = \"05 Delete body.message\", first_ts = m05),\n        record(milestone = \"07 Masking\", first_ts = m07),\n        record(milestone = \"08 Parse regex\", first_ts = m08),\n        record(milestone = \"10 OpenPipeline syslog\", first_ts = m10))\n    | expand ev\n    | fields project, milestone = ev[milestone], first_ts = ev[first_ts]\n    | filter isNotNull(first_ts)\n  ]\n  | append [\n    fetch logs\n    | filter isNotNull(project) and project == \"TonyStark\" and appname == \"PAN-OS\" and isNotNull(pan.action)\n    | makeTimeseries { allow = countIf(pan.action == \"allow\"), total = count() }, by: { project }, interval: 1m\n    | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(total[] >= 30 and allow[] / total[] < 0.8, iIndex()))))\n    | filter isNotNull(idx)\n    | fields project, milestone = \"06 Sampling\", first_ts = timeframe[start] + interval * (idx + 1)\n  ]\n  | summarize first_ts = min(first_ts), by: { project, milestone }\n], sourceField: milestone, lookupField: milestone, prefix: \"e_\"\n| fieldsAdd status = if(isNull(e_first_ts), \"⬜ Not yet\", else: \"✅ Done\")\n| fields milestone, status, achieved_at = e_first_ts",
+     "timeframe": {
+      "from": "now()-2h",
+      "to": "now()"
+     }
+    },
+    "visualization": "table",
+    "visualizationSettings": {}
+   }
+  }
+ ]
+}

@@ -1,0 +1,969 @@
+{
+ "version": 21,
+ "variables": [
+  {
+   "key": "Project",
+   "type": "query",
+   "visible": true,
+   "editable": true,
+   "multiple": true,
+   "input": "fetch logs\n| filter isNotNull(project) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n| summarize n = count(), by: { project }\n| fields project\n| append [ data record(project = \"*\"), record(project = \"— pick a project —\") ]\n| sort project asc",
+   "defaultValue": [
+    "— pick a project —"
+   ]
+  },
+  {
+   "key": "Cluster",
+   "type": "query",
+   "visible": true,
+   "editable": true,
+   "multiple": true,
+   "input": "fetch logs\n| filter k8s.namespace.name == \"astroshop\" and matchesPhrase(content, \"Transaction complete.\")\n| fieldsAdd participant = if(startsWith(k8s.cluster.name, \"bindplane-logs-\") and stringLength(k8s.cluster.name) > 24, substring(k8s.cluster.name, from: 15, to: stringLength(k8s.cluster.name) - 9), else: k8s.cluster.name)\n| summarize n = count(), by: { participant }\n| fields participant\n| append [ data record(participant = \"*\"), record(participant = \"— pick a project —\") ]\n| sort participant asc",
+   "defaultValue": [
+    "— pick a project —"
+   ]
+  }
+ ],
+ "tiles": {
+  "0": {
+   "type": "markdown",
+   "content": "# 🚀 What my Bindplane pipeline did\nPick one or more names in **Project** (or **`*`** for the whole class). The payments section has its own **Cluster** selector, because those logs come from your Kubernetes cluster, not through Bindplane. Every tile below is live data from the pipelines built in the lab: what you collected, how you shaped it at the edge, what you **didn't** have to send or store, and what Dynatrace can do with it once it lands.\n\n| Stage | Bindplane did this at the edge | Why it matters |\n|---|---|---|\n| 🏷️ Label | `project` stamped on every record | find your data in a busy tenant with one filter |\n| 🧩 Parse | 38 named `pan.*` fields from raw CSV | no regex at query time, faster dashboards and alerts |\n| ✂️ Reduce | raw CSV removed, routine traffic sampled | less to ship, ingest and store |\n| 🔐 Mask | credentials hashed before leaving the host | secrets never reach any backend in clear text |\n| 📈 Metrics | log events turned into a time series | cheap, fast trend queries and alerting |\n| 🔎 OpenPipeline | syslog parsed **in Dynatrace on ingest** | no collector change needed, severity and fields for free |\n| 💳 Business data | payment JSON turned into `app.payment.*` fields | revenue, card mix and loyalty straight from logs |"
+  },
+  "1": {
+   "type": "markdown",
+   "content": "## ⭐ Headline numbers"
+  },
+  "2": {
+   "title": "Records shipped",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")) or receiver == \"netflow\")\n| summarize v = count()",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "logs sent to Dynatrace",
+     "recordField": "v"
+    }
+   }
+  },
+  "3": {
+   "title": "Sources live",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")) or receiver == \"netflow\")\n| fieldsAdd source = if(isNotNull(flow.type), \"NetFlow\",\n    else: if(isNotNull(log.file.name), concat(\"File: \", log.file.name),\n    else: if(isNotNull(appname), \"Syslog\", else: \"Other\")))\n| summarize v = countDistinct(source)",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "file paths, syslog, NetFlow",
+     "recordField": "v"
+    }
+   }
+  },
+  "4": {
+   "title": "Firewall sessions parsed",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and appname == \"PAN-OS\" and isNotNull(pan.action)\n| summarize v = count()",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "turned into 38 named fields",
+     "recordField": "v"
+    }
+   }
+  },
+  "5": {
+   "title": "Firewall records dropped at the edge",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and appname == \"PAN-OS\" and isNotNull(pan.action)\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and appname == \"PAN-OS\" and isNotNull(pan.action)\n  | makeTimeseries { allow = countIf(pan.action == \"allow\"), total = count() }, by: { project }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(total[] >= 30 and allow[] / total[] < 0.8, iIndex()))))\n  | filter isNotNull(idx)\n  | fields project, milestone = \"06 Sampling\", first_ts = timeframe[start] + interval * (idx + 1)\n], sourceField: project, lookupField: project, prefix: \"s_\"\n| filter isNotNull(s_first_ts) and timestamp >= s_first_ts\n| summarize { a = countIf(pan.action == \"allow\"), o = countIf(pan.action != \"allow\") }\n| fields v = concat(toString(round(100.0 * a * 9 / (a * 10 + o), decimals: 0)), \"%\")",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "since sampling started — every deny kept",
+     "recordField": "v"
+    }
+   }
+  },
+  "6": {
+   "title": "Secrets hashed",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and log.file.name == \"audit.log\" and contains(content, \"BCH_ACCESS_KEY_ID=\")\n| parse content, \"LD 'BCH_ACCESS_KEY_ID=' NSPACE:bch_ak SPACE 'BCH_SECRET_ACCESS_KEY=' NSPACE:bch_sk\"\n| fieldsAdd bch_sk = replaceString(bch_sk, \"\\\"\", \"\")\n| filter stringLength(bch_ak) >= 64 and stringLength(bch_sk) >= 64 and not startsWith(bch_ak, \"BCHK\")\n| summarize v = count()",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "records masked before leaving the host",
+     "recordField": "v"
+    }
+   }
+  },
+  "7": {
+   "title": "Exposed access keys",
+   "type": "data",
+   "query": "timeseries v = sum(log.exposed_bch_credentials.count), by: { host.name, bch_access_key_id }\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter (in(\"*\", array($Project)) or in(m_project, array($Project))) and not startsWith(bch_access_key_id, \"BCHK\")\n| summarize v = countDistinct(bch_access_key_id)",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "distinct keys, counted from a metric",
+     "recordField": "v"
+    }
+   }
+  },
+  "8": {
+   "title": "Raw CSV kept off the wire",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and appname == \"PAN-OS\"\n| summarize {\n    raw_bytes = avg(if(contains(content, \",TRAFFIC,end,\"), stringLength(content))),\n    stripped = countIf(isNotNull(pan.action) and (isNull(content) or content == \"\"))\n  }\n| fields v = concat(toString(round(raw_bytes * stripped / 1048576, decimals: 2)), \" MB\")",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "raw message deleted after parsing",
+     "recordField": "v"
+    }
+   }
+  },
+  "9": {
+   "title": "At this rate, per day",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and appname == \"PAN-OS\" and pan.action == \"allow\"\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and appname == \"PAN-OS\" and isNotNull(pan.action)\n  | makeTimeseries { allow = countIf(pan.action == \"allow\"), total = count() }, by: { project }, interval: 1m\n  | fieldsAdd idx = arrayFirst(arrayRemoveNulls(iCollectArray(if(total[] >= 30 and allow[] / total[] < 0.8, iIndex()))))\n  | filter isNotNull(idx)\n  | fields project, milestone = \"06 Sampling\", first_ts = timeframe[start] + interval * (idx + 1)\n], sourceField: project, lookupField: project, prefix: \"s_\"\n| filter isNotNull(s_first_ts) and timestamp >= s_first_ts\n| summarize { a = count(), st = min(s_first_ts), lt = max(timestamp) }, by: { project }\n| fieldsAdd per_day = a * 9 / ((lt - st) / 1m) * 1440\n| summarize v = concat(toString(round(sum(per_day) / 1000000, decimals: 2)), \" M\")",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "routine firewall records you'd never pay to ingest",
+     "recordField": "v"
+    }
+   }
+  },
+  "10": {
+   "title": "Needle in a haystack",
+   "type": "data",
+   "query": "fetch logs\n| summarize { mine = countIf((in(\"*\", array($Project)) or in(project, array($Project))) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")) or receiver == \"netflow\")), total = count() }\n| fields v = concat(toString(round(100.0 * mine / total, decimals: 2)), \"% of the tenant\")",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "your data, found with one label filter",
+     "recordField": "v"
+    }
+   }
+  },
+  "11": {
+   "title": "Collectors online now",
+   "type": "data",
+   "query": "timeseries v = avg(otelcol_process_memory_rss), by: { host.name }\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter (in(\"*\", array($Project)) or in(m_project, array($Project)))\n| fieldsAdd live = isNotNull(arrayLast(v))\n| summarize v = countIf(live)",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "reporting self-telemetry",
+     "recordField": "v"
+    }
+   }
+  },
+  "12": {
+   "type": "markdown",
+   "content": "## 📥 What I'm sending"
+  },
+  "13": {
+   "title": "Records per minute by source",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")) or receiver == \"netflow\")\n| fieldsAdd source = if(isNotNull(flow.type), \"NetFlow\",\n    else: if(isNotNull(log.file.name), concat(\"File: \", log.file.name),\n    else: if(isNotNull(appname), \"Syslog\", else: \"Other\")))\n| makeTimeseries records = count(), by: { source }, interval: 1m",
+   "visualization": "lineChart",
+   "visualizationSettings": {}
+  },
+  "14": {
+   "title": "Share by source",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")) or receiver == \"netflow\")\n| fieldsAdd source = if(isNotNull(flow.type), \"NetFlow\",\n    else: if(isNotNull(log.file.name), concat(\"File: \", log.file.name),\n    else: if(isNotNull(appname), \"Syslog\", else: \"Other\")))\n| summarize records = count(), by: { source }\n| sort records desc",
+   "visualization": "categoricalBarChart",
+   "visualizationSettings": {}
+  },
+  "15": {
+   "type": "markdown",
+   "content": "## 🏷️ Labels — one field makes the data findable"
+  },
+  "16": {
+   "title": "Who sent what (use * to see the class)",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")) or receiver == \"netflow\")\n| fieldsAdd source = if(isNotNull(flow.type), \"NetFlow\",\n    else: if(isNotNull(log.file.name), concat(\"File: \", log.file.name),\n    else: if(isNotNull(appname), \"Syslog\", else: \"Other\")))\n| summarize { records = count(), sources = countDistinct(source), first_seen = min(timestamp), last_seen = max(timestamp) }, by: { project }\n| sort records desc",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "17": {
+   "type": "markdown",
+   "content": "## 🧩 Parsing — the same firewall log, raw vs structured"
+  },
+  "18": {
+   "title": "Raw, as it arrives (one long CSV string)",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and appname == \"PAN-OS\" and contains(content, \",TRAFFIC,end,\") and isNull(pan.action)\n| sort timestamp desc\n| limit 10\n| fields timestamp, project, content",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "19": {
+   "title": "Structured by Bindplane (named fields, no regex)",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and appname == \"PAN-OS\" and isNotNull(pan.action)\n| sort timestamp desc\n| limit 10\n| fields timestamp, project, pan.action, pan.app, pan.src_user, pan.src_ip, pan.dst_ip, pan.dst_port, pan.bytes, pan.session_end_reason",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "20": {
+   "title": "Dynatrace: parsed at query time (schema on read)",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and appname == \"PAN-OS\" and contains(content, \",TRAFFIC,end,\")\n| fieldsAdd action = splitString(content, \",\")[31]\n| summarize sessions = count(), by: { action }\n| sort sessions desc",
+   "visualization": "categoricalBarChart",
+   "visualizationSettings": {}
+  },
+  "21": {
+   "title": "Bindplane: parsed at the edge (field already there)",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and appname == \"PAN-OS\" and isNotNull(pan.action)\n| summarize sessions = count(), by: { action = pan.action }\n| sort sessions desc",
+   "visualization": "categoricalBarChart",
+   "visualizationSettings": {}
+  },
+  "22": {
+   "title": "How sessions ended",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and appname == \"PAN-OS\" and isNotNull(pan.action)\n| summarize sessions = count(), by: { reason = pan.session_end_reason }\n| sort sessions desc",
+   "visualization": "categoricalBarChart",
+   "visualizationSettings": {}
+  },
+  "23": {
+   "title": "Top apps by traffic (MB)",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and appname == \"PAN-OS\" and isNotNull(pan.action)\n| summarize mb = round(sum(toLong(pan.bytes)) / 1048576, decimals: 1), by: { app = pan.app }\n| sort mb desc\n| limit 10",
+   "visualization": "categoricalBarChart",
+   "visualizationSettings": {}
+  },
+  "24": {
+   "title": "Busiest users",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and appname == \"PAN-OS\" and isNotNull(pan.src_user) and pan.src_user != \"\"\n| summarize sessions = count(), by: { user = pan.src_user }\n| sort sessions desc\n| limit 10",
+   "visualization": "categoricalBarChart",
+   "visualizationSettings": {}
+  },
+  "25": {
+   "title": "What got blocked, by rule",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and appname == \"PAN-OS\" and isNotNull(pan.action) and pan.action != \"allow\"\n| summarize sessions = count(), by: { rule = pan.rule_name, action = pan.action }\n| sort sessions desc\n| limit 10",
+   "visualization": "categoricalBarChart",
+   "visualizationSettings": {}
+  },
+  "26": {
+   "title": "Zone to zone traffic",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and appname == \"PAN-OS\" and isNotNull(pan.action)\n| summarize { sessions = count(), mb = round(sum(toLong(pan.bytes)) / 1048576, decimals: 1),\n    denied = countIf(pan.action != \"allow\") }, by: { from_zone = pan.src_zone, to_zone = pan.dst_zone }\n| sort mb desc",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "27": {
+   "title": "Top destination ports",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and appname == \"PAN-OS\" and isNotNull(pan.dst_port)\n| summarize sessions = count(), by: { port = pan.dst_port, app = pan.app }\n| sort sessions desc\n| limit 10",
+   "visualization": "categoricalBarChart",
+   "visualizationSettings": {}
+  },
+  "28": {
+   "type": "markdown",
+   "content": "## ✂️ Volume reduction — keep every deny, sample the routine"
+  },
+  "29": {
+   "title": "Firewall records per minute — allow vs deny/drop/reset",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and appname == \"PAN-OS\" and isNotNull(pan.action)\n| makeTimeseries { allow = countIf(pan.action == \"allow\"), deny_drop_reset = countIf(pan.action != \"allow\") }, interval: 1m",
+   "visualization": "lineChart",
+   "visualizationSettings": {}
+  },
+  "30": {
+   "title": "Allow share (%) — drops from ~93% when sampling starts",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and appname == \"PAN-OS\" and isNotNull(pan.action)\n| makeTimeseries { allow = countIf(pan.action == \"allow\"), total = count() }, by: { project }, interval: 1m\n| fieldsAdd allow_share_pct = 100 * allow[] / total[]\n| fields timeframe, interval, project, allow_share_pct",
+   "visualization": "lineChart",
+   "visualizationSettings": {}
+  },
+  "31": {
+   "title": "Raw CSV bytes per minute — gone after Delete Fields",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and appname == \"PAN-OS\"\n| fieldsAdd raw_bytes = if(isNotNull(content), stringLength(content), else: 0)\n| makeTimeseries raw = sum(raw_bytes), by: { project }, interval: 1m\n| fieldsAdd kb = raw[] / 1024\n| fields timeframe, interval, project, kb",
+   "visualization": "lineChart",
+   "visualizationSettings": {}
+  },
+  "32": {
+   "type": "markdown",
+   "content": "## 🔐 Masking — leaked cloud credentials, hashed in flight"
+  },
+  "33": {
+   "title": "Credential records per minute — raw vs hashed",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and log.file.name == \"audit.log\" and contains(content, \"BCH_ACCESS_KEY_ID=\")\n| parse content, \"LD 'BCH_ACCESS_KEY_ID=' NSPACE:bch_ak SPACE 'BCH_SECRET_ACCESS_KEY=' NSPACE:bch_sk\"\n| fieldsAdd bch_sk = replaceString(bch_sk, \"\\\"\", \"\")\n| fieldsAdd state = if(startsWith(bch_ak, \"BCHK\"), \"🔓 raw\", else: if(stringLength(bch_ak) >= 64 and stringLength(bch_sk) >= 64, \"🔒 hashed\", else: \"⚠️ partial\"))\n| makeTimeseries records = count(), by: { state }, interval: 1m",
+   "visualization": "lineChart",
+   "visualizationSettings": {}
+  },
+  "34": {
+   "title": "Before vs after the redaction rollout",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and log.file.name == \"audit.log\" and contains(content, \"BCH_ACCESS_KEY_ID=\")\n| parse content, \"LD 'BCH_ACCESS_KEY_ID=' NSPACE:bch_ak SPACE 'BCH_SECRET_ACCESS_KEY=' NSPACE:bch_sk\"\n| fieldsAdd bch_sk = replaceString(bch_sk, \"\\\"\", \"\")\n| fieldsAdd state = if(startsWith(bch_ak, \"BCHK\"), \"🔓 raw\", else: if(stringLength(bch_ak) >= 64 and stringLength(bch_sk) >= 64, \"🔒 hashed\", else: \"⚠️ partial\"))\n| summarize { records = count(), first_seen = min(timestamp), last_seen = max(timestamp) }, by: { project, state }\n| sort project asc, first_seen asc",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "35": {
+   "title": "Latest credential records — what actually reached Dynatrace",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and log.file.name == \"audit.log\" and contains(content, \"BCH_ACCESS_KEY_ID=\")\n| parse content, \"LD 'BCH_ACCESS_KEY_ID=' NSPACE:bch_ak SPACE 'BCH_SECRET_ACCESS_KEY=' NSPACE:bch_sk\"\n| fieldsAdd bch_sk = replaceString(bch_sk, \"\\\"\", \"\")\n| fieldsAdd state = if(startsWith(bch_ak, \"BCHK\"), \"🔓 raw\", else: if(stringLength(bch_ak) >= 64 and stringLength(bch_sk) >= 64, \"🔒 hashed\", else: \"⚠️ partial\"))\n| sort timestamp desc\n| limit 15\n| fields timestamp, project, state, content",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "36": {
+   "type": "markdown",
+   "content": "## 📈 Logs → metrics — impact assessment without scanning logs"
+  },
+  "37": {
+   "title": "Exposed credential sightings over time (metric)",
+   "type": "data",
+   "query": "timeseries v = sum(log.exposed_bch_credentials.count), by: { host.name, bch_access_key_id }\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter (in(\"*\", array($Project)) or in(m_project, array($Project)))\n| fields timeframe, interval, bch_access_key_id, v",
+   "visualization": "lineChart",
+   "visualizationSettings": {}
+  },
+  "38": {
+   "title": "Same answer, two ways — log scan vs metric",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and isNotNull(bch_access_key_id)\n| summarize from_logs = count(), by: { bch_access_key_id }\n| lookup [\n  timeseries v = sum(log.exposed_bch_credentials.count), by: { host.name, bch_access_key_id }\n  | lookup [\n    fetch logs\n    | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n    | summarize n = count(), by: { host.name, project }\n    | sort n desc\n    | summarize project = takeFirst(project), by: { host.name }\n  ], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n  | filter (in(\"*\", array($Project)) or in(m_project, array($Project)))\n  | fieldsAdd t = arraySum(v)\n  | summarize from_metric = sum(t), by: { bch_access_key_id }\n], sourceField: bch_access_key_id, lookupField: bch_access_key_id, prefix: \"m_\"\n| fields hashed_access_key = bch_access_key_id, from_logs, from_metric = m_from_metric\n| sort from_logs desc",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "39": {
+   "type": "markdown",
+   "content": "## 🌐 NetFlow — who is talking to whom"
+  },
+  "40": {
+   "title": "NetFlow bytes per minute (MB)",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and receiver == \"netflow\"\n| makeTimeseries b = sum(flow.io.bytes), by: { protocol = network.transport }, interval: 1m\n| fieldsAdd mb = b[] / 1048576\n| fields timeframe, interval, protocol, mb",
+   "visualization": "lineChart",
+   "visualizationSettings": {}
+  },
+  "41": {
+   "title": "Top destination ports by bytes",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and receiver == \"netflow\"\n| summarize mb = round(sum(flow.io.bytes) / 1048576, decimals: 1), by: { port = destination.port }\n| sort mb desc\n| limit 10",
+   "visualization": "categoricalBarChart",
+   "visualizationSettings": {}
+  },
+  "42": {
+   "title": "Top talkers",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and receiver == \"netflow\"\n| summarize { flows = count(), mb = round(sum(flow.io.bytes) / 1048576, decimals: 1), packets = sum(flow.io.packets) },\n    by: { source = source.address, destination = destination.address, port = destination.port }\n| sort mb desc\n| limit 15",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "43": {
+   "title": "Traffic by source network (ASN)",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and receiver == \"netflow\"\n| summarize mb = round(sum(flow.io.bytes) / 1048576, decimals: 1), by: { source_asn = toString(flow.src_as) }\n| sort mb desc\n| limit 10",
+   "visualization": "categoricalBarChart",
+   "visualizationSettings": {}
+  },
+  "44": {
+   "type": "markdown",
+   "content": "## 🧾 Syslog streams and host files"
+  },
+  "45": {
+   "title": "Syslog records by application",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and isNotNull(appname)\n| summarize records = count(), by: { appname }\n| sort records desc",
+   "visualization": "categoricalBarChart",
+   "visualizationSettings": {}
+  },
+  "46": {
+   "title": "Log levels by source",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")) or receiver == \"netflow\")\n| fieldsAdd source = if(isNotNull(flow.type), \"NetFlow\",\n    else: if(isNotNull(log.file.name), concat(\"File: \", log.file.name),\n    else: if(isNotNull(appname), \"Syslog\", else: \"Other\")))\n| summarize records = count(), by: { source, loglevel }\n| sort records desc",
+   "visualization": "categoricalBarChart",
+   "visualizationSettings": {}
+  },
+  "47": {
+   "type": "markdown",
+   "content": "## 🔎 OpenPipeline — parsing in Dynatrace on ingest (host syslog file)"
+  },
+  "48": {
+   "title": "Syslog file records per minute — raw vs parsed by OpenPipeline",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and log.file.name == \"syslog\"\n| fieldsAdd state = if(isNotNull(syslog.severity), \"🔎 parsed by OpenPipeline\", else: \"📄 raw\")\n| makeTimeseries records = count(), by: { state }, interval: 1m",
+   "visualization": "lineChart",
+   "visualizationSettings": {}
+  },
+  "49": {
+   "title": "Severity found by OpenPipeline",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and log.file.name == \"syslog\"\n| summarize records = count(), by: { loglevel }\n| sort records desc",
+   "visualization": "categoricalBarChart",
+   "visualizationSettings": {}
+  },
+  "50": {
+   "title": "Which OpenPipeline pipeline handled my logs",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")) or receiver == \"netflow\")\n| fieldsAdd pipeline = dt.openpipeline.pipelines[0], source = if(isNotNull(flow.type), \"NetFlow\",\n    else: if(isNotNull(log.file.name), concat(\"File: \", log.file.name),\n    else: if(isNotNull(appname), \"Syslog\", else: \"Other\")))\n| summarize records = count(), by: { project, source, pipeline }\n| sort project asc, records desc",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "51": {
+   "title": "Raw syslog lines (before your pipeline)",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and log.file.name == \"syslog\" and not (isNotNull(syslog.severity))\n| sort timestamp desc\n| limit 10\n| fields timestamp, project, loglevel, content",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "52": {
+   "title": "Parsed by OpenPipeline (all fields it added)",
+   "type": "data",
+   "query": "fetch logs\n| filter (in(\"*\", array($Project)) or in(project, array($Project))) and log.file.name == \"syslog\" and isNotNull(syslog.severity)\n| sort timestamp desc\n| limit 10\n| fieldsRemove \"dt.*\", \"flow.*\", \"pan.*\", deployment.environment, os.type",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "53": {
+   "type": "markdown",
+   "content": "## 💳 Business data from logs — astroshop payments (pick your name in **Cluster**)"
+  },
+  "54": {
+   "title": "Payments decoded",
+   "type": "data",
+   "query": "fetch logs\n| filter k8s.namespace.name == \"astroshop\" and matchesPhrase(content, \"Transaction complete.\")\n| fieldsAdd participant = if(startsWith(k8s.cluster.name, \"bindplane-logs-\") and stringLength(k8s.cluster.name) > 24, substring(k8s.cluster.name, from: 15, to: stringLength(k8s.cluster.name) - 9), else: k8s.cluster.name)\n| filter in(\"*\", array($Cluster)) or in(participant, array($Cluster))\n| filter isNotNull(app.payment.transactionId)\n| summarize v = count()",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "transactions with app.payment.* fields",
+     "recordField": "v"
+    }
+   }
+  },
+  "55": {
+   "title": "Revenue made visible",
+   "type": "data",
+   "query": "fetch logs\n| filter k8s.namespace.name == \"astroshop\" and matchesPhrase(content, \"Transaction complete.\")\n| fieldsAdd participant = if(startsWith(k8s.cluster.name, \"bindplane-logs-\") and stringLength(k8s.cluster.name) > 24, substring(k8s.cluster.name, from: 15, to: stringLength(k8s.cluster.name) - 9), else: k8s.cluster.name)\n| filter in(\"*\", array($Cluster)) or in(participant, array($Cluster))\n| filter isNotNull(app.payment.transactionId)\n| summarize total = sum(toDouble(app.payment.amount)), by: { app.payment.currencyCode }\n| sort total desc\n| limit 1\n| fields v = concat(app.payment.currencyCode, \" \", toString(round(total, decimals: 0)))",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "top currency, from plain log lines",
+     "recordField": "v"
+    }
+   }
+  },
+  "56": {
+   "title": "Average basket",
+   "type": "data",
+   "query": "fetch logs\n| filter k8s.namespace.name == \"astroshop\" and matchesPhrase(content, \"Transaction complete.\")\n| fieldsAdd participant = if(startsWith(k8s.cluster.name, \"bindplane-logs-\") and stringLength(k8s.cluster.name) > 24, substring(k8s.cluster.name, from: 15, to: stringLength(k8s.cluster.name) - 9), else: k8s.cluster.name)\n| filter in(\"*\", array($Cluster)) or in(participant, array($Cluster))\n| filter isNotNull(app.payment.transactionId)\n| summarize v = round(avg(toDouble(app.payment.amount)), decimals: 0)",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "units per transaction",
+     "recordField": "v"
+    }
+   }
+  },
+  "57": {
+   "title": "Extraction coverage",
+   "type": "data",
+   "query": "fetch logs\n| filter k8s.namespace.name == \"astroshop\" and matchesPhrase(content, \"Transaction complete.\")\n| fieldsAdd participant = if(startsWith(k8s.cluster.name, \"bindplane-logs-\") and stringLength(k8s.cluster.name) > 24, substring(k8s.cluster.name, from: 15, to: stringLength(k8s.cluster.name) - 9), else: k8s.cluster.name)\n| filter in(\"*\", array($Cluster)) or in(participant, array($Cluster))\n| summarize { e = countIf(isNotNull(app.payment.transactionId)), t = count() }\n| fields v = concat(toString(round(100.0 * e / t, decimals: 0)), \"%\")",
+   "visualization": "singleValue",
+   "visualizationSettings": {
+    "singleValue": {
+     "label": "of payment logs now carry fields",
+     "recordField": "v"
+    }
+   }
+  },
+  "58": {
+   "title": "Revenue per minute by currency",
+   "type": "data",
+   "query": "fetch logs\n| filter k8s.namespace.name == \"astroshop\" and matchesPhrase(content, \"Transaction complete.\")\n| fieldsAdd participant = if(startsWith(k8s.cluster.name, \"bindplane-logs-\") and stringLength(k8s.cluster.name) > 24, substring(k8s.cluster.name, from: 15, to: stringLength(k8s.cluster.name) - 9), else: k8s.cluster.name)\n| filter in(\"*\", array($Cluster)) or in(participant, array($Cluster))\n| filter isNotNull(app.payment.transactionId)\n| makeTimeseries revenue = sum(toDouble(app.payment.amount)), by: { app.payment.currencyCode }, interval: 1m",
+   "visualization": "lineChart",
+   "visualizationSettings": {}
+  },
+  "59": {
+   "title": "Transactions by card type",
+   "type": "data",
+   "query": "fetch logs\n| filter k8s.namespace.name == \"astroshop\" and matchesPhrase(content, \"Transaction complete.\")\n| fieldsAdd participant = if(startsWith(k8s.cluster.name, \"bindplane-logs-\") and stringLength(k8s.cluster.name) > 24, substring(k8s.cluster.name, from: 15, to: stringLength(k8s.cluster.name) - 9), else: k8s.cluster.name)\n| filter in(\"*\", array($Cluster)) or in(participant, array($Cluster))\n| filter isNotNull(app.payment.transactionId)\n| summarize transactions = count(), by: { card = app.payment.cardType }\n| sort transactions desc",
+   "visualization": "categoricalBarChart",
+   "visualizationSettings": {}
+  },
+  "60": {
+   "title": "Transactions by loyalty tier",
+   "type": "data",
+   "query": "fetch logs\n| filter k8s.namespace.name == \"astroshop\" and matchesPhrase(content, \"Transaction complete.\")\n| fieldsAdd participant = if(startsWith(k8s.cluster.name, \"bindplane-logs-\") and stringLength(k8s.cluster.name) > 24, substring(k8s.cluster.name, from: 15, to: stringLength(k8s.cluster.name) - 9), else: k8s.cluster.name)\n| filter in(\"*\", array($Cluster)) or in(participant, array($Cluster))\n| filter isNotNull(app.payment.transactionId)\n| summarize transactions = count(), by: { tier = app.payment.loyaltyLevel }\n| sort transactions desc",
+   "visualization": "categoricalBarChart",
+   "visualizationSettings": {}
+  },
+  "61": {
+   "title": "Raw payment log (JSON in content)",
+   "type": "data",
+   "query": "fetch logs\n| filter k8s.namespace.name == \"astroshop\" and matchesPhrase(content, \"Transaction complete.\")\n| fieldsAdd participant = if(startsWith(k8s.cluster.name, \"bindplane-logs-\") and stringLength(k8s.cluster.name) > 24, substring(k8s.cluster.name, from: 15, to: stringLength(k8s.cluster.name) - 9), else: k8s.cluster.name)\n| filter in(\"*\", array($Cluster)) or in(participant, array($Cluster))\n| filter isNull(app.payment.transactionId)\n| sort timestamp desc\n| limit 10\n| fields timestamp, participant, content",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "62": {
+   "title": "Extracted payment fields",
+   "type": "data",
+   "query": "fetch logs\n| filter k8s.namespace.name == \"astroshop\" and matchesPhrase(content, \"Transaction complete.\")\n| fieldsAdd participant = if(startsWith(k8s.cluster.name, \"bindplane-logs-\") and stringLength(k8s.cluster.name) > 24, substring(k8s.cluster.name, from: 15, to: stringLength(k8s.cluster.name) - 9), else: k8s.cluster.name)\n| filter in(\"*\", array($Cluster)) or in(participant, array($Cluster))\n| filter isNotNull(app.payment.transactionId)\n| sort timestamp desc\n| limit 10\n| fields timestamp, participant, app.payment.transactionId, app.payment.cardType,\n    app.payment.amount, app.payment.currencyCode, app.payment.loyaltyLevel",
+   "visualization": "table",
+   "visualizationSettings": {}
+  },
+  "63": {
+   "type": "markdown",
+   "content": "## 🛠️ The collector watching itself (Bindplane self-telemetry)"
+  },
+  "64": {
+   "title": "Collector memory (MB)",
+   "type": "data",
+   "query": "timeseries v = avg(otelcol_process_memory_rss), by: { host.name }\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter (in(\"*\", array($Project)) or in(m_project, array($Project)))\n| fieldsAdd mb = v[] / 1048576\n| fields timeframe, interval, collector = m_project, mb",
+   "visualization": "lineChart",
+   "visualizationSettings": {}
+  },
+  "65": {
+   "title": "Collector CPU (% of one core)",
+   "type": "data",
+   "query": "timeseries v = sum(otelcol_process_cpu_seconds), by: { host.name }\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter (in(\"*\", array($Project)) or in(m_project, array($Project)))\n| fieldsAdd cpu_pct = v[] / 60 * 100\n| fields timeframe, interval, collector = m_project, cpu_pct",
+   "visualization": "lineChart",
+   "visualizationSettings": {}
+  },
+  "66": {
+   "title": "Records accepted per receiver type",
+   "type": "data",
+   "query": "timeseries v = sum(otelcol_receiver_accepted_log_records), by: { host.name, receiver }\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter (in(\"*\", array($Project)) or in(m_project, array($Project)))\n| fieldsAdd receiver_type = splitString(receiver, \"/\")[0]\n| fields timeframe, interval, series = concat(m_project, \" · \", receiver_type), v",
+   "visualization": "lineChart",
+   "visualizationSettings": {}
+  },
+  "67": {
+   "title": "Sent to Dynatrace vs failed",
+   "type": "data",
+   "query": "timeseries v = sum(otelcol_exporter_sent_log_records), by: { host.name }\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter (in(\"*\", array($Project)) or in(m_project, array($Project)))\n| fields timeframe, interval, collector = m_project, sent = v\n| append [\n  timeseries v = sum(otelcol_exporter_send_failed_log_records), by: { host.name }\n  | lookup [\n    fetch logs\n    | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n    | summarize n = count(), by: { host.name, project }\n    | sort n desc\n    | summarize project = takeFirst(project), by: { host.name }\n  ], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n  | filter (in(\"*\", array($Project)) or in(m_project, array($Project)))\n  | fields timeframe, interval, collector = m_project, failed = v\n]",
+   "visualization": "lineChart",
+   "visualizationSettings": {}
+  },
+  "68": {
+   "title": "Busiest pipeline components (items per processor type)",
+   "type": "data",
+   "query": "timeseries v = sum(otelcol_processor_incoming_items), by: { host.name, processor }\n| lookup [\n  fetch logs\n  | filter isNotNull(project) and isNotNull(host.name) and (appname == \"PAN-OS\" or in(log.file.name, array(\"syslog\", \"audit.log\", \"fail2ban.log\")))\n  | summarize n = count(), by: { host.name, project }\n  | sort n desc\n  | summarize project = takeFirst(project), by: { host.name }\n], sourceField: host.name, lookupField: host.name, prefix: \"m_\"\n| filter (in(\"*\", array($Project)) or in(m_project, array($Project))) and not startsWith(processor, \"throughputmeasurement/\") and not startsWith(processor, \"snapshotprocessor\")\n| fieldsAdd processor_type = splitString(processor, \"/\")[0], items = arraySum(v)\n| summarize items = sum(items), by: { collector = m_project, processor_type }\n| sort items desc",
+   "visualization": "table",
+   "visualizationSettings": {}
+  }
+ },
+ "layouts": {
+  "0": {
+   "x": 0,
+   "y": 0,
+   "w": 24,
+   "h": 9
+  },
+  "1": {
+   "x": 0,
+   "y": 9,
+   "w": 24,
+   "h": 1
+  },
+  "2": {
+   "x": 0,
+   "y": 10,
+   "w": 4,
+   "h": 3
+  },
+  "3": {
+   "x": 4,
+   "y": 10,
+   "w": 4,
+   "h": 3
+  },
+  "4": {
+   "x": 8,
+   "y": 10,
+   "w": 4,
+   "h": 3
+  },
+  "5": {
+   "x": 12,
+   "y": 10,
+   "w": 4,
+   "h": 3
+  },
+  "6": {
+   "x": 16,
+   "y": 10,
+   "w": 4,
+   "h": 3
+  },
+  "7": {
+   "x": 20,
+   "y": 10,
+   "w": 4,
+   "h": 3
+  },
+  "8": {
+   "x": 0,
+   "y": 13,
+   "w": 6,
+   "h": 3
+  },
+  "9": {
+   "x": 6,
+   "y": 13,
+   "w": 6,
+   "h": 3
+  },
+  "10": {
+   "x": 12,
+   "y": 13,
+   "w": 6,
+   "h": 3
+  },
+  "11": {
+   "x": 18,
+   "y": 13,
+   "w": 6,
+   "h": 3
+  },
+  "12": {
+   "x": 0,
+   "y": 16,
+   "w": 24,
+   "h": 1
+  },
+  "13": {
+   "x": 0,
+   "y": 17,
+   "w": 16,
+   "h": 7
+  },
+  "14": {
+   "x": 16,
+   "y": 17,
+   "w": 8,
+   "h": 7
+  },
+  "15": {
+   "x": 0,
+   "y": 24,
+   "w": 24,
+   "h": 1
+  },
+  "16": {
+   "x": 0,
+   "y": 25,
+   "w": 24,
+   "h": 5
+  },
+  "17": {
+   "x": 0,
+   "y": 30,
+   "w": 24,
+   "h": 1
+  },
+  "18": {
+   "x": 0,
+   "y": 31,
+   "w": 12,
+   "h": 6
+  },
+  "19": {
+   "x": 12,
+   "y": 31,
+   "w": 12,
+   "h": 6
+  },
+  "20": {
+   "x": 0,
+   "y": 37,
+   "w": 8,
+   "h": 6
+  },
+  "21": {
+   "x": 8,
+   "y": 37,
+   "w": 8,
+   "h": 6
+  },
+  "22": {
+   "x": 16,
+   "y": 37,
+   "w": 8,
+   "h": 6
+  },
+  "23": {
+   "x": 0,
+   "y": 43,
+   "w": 8,
+   "h": 6
+  },
+  "24": {
+   "x": 8,
+   "y": 43,
+   "w": 8,
+   "h": 6
+  },
+  "25": {
+   "x": 16,
+   "y": 43,
+   "w": 8,
+   "h": 6
+  },
+  "26": {
+   "x": 0,
+   "y": 49,
+   "w": 12,
+   "h": 6
+  },
+  "27": {
+   "x": 12,
+   "y": 49,
+   "w": 12,
+   "h": 6
+  },
+  "28": {
+   "x": 0,
+   "y": 55,
+   "w": 24,
+   "h": 1
+  },
+  "29": {
+   "x": 0,
+   "y": 56,
+   "w": 12,
+   "h": 7
+  },
+  "30": {
+   "x": 12,
+   "y": 56,
+   "w": 12,
+   "h": 7
+  },
+  "31": {
+   "x": 0,
+   "y": 63,
+   "w": 24,
+   "h": 6
+  },
+  "32": {
+   "x": 0,
+   "y": 69,
+   "w": 24,
+   "h": 1
+  },
+  "33": {
+   "x": 0,
+   "y": 70,
+   "w": 12,
+   "h": 6
+  },
+  "34": {
+   "x": 12,
+   "y": 70,
+   "w": 12,
+   "h": 6
+  },
+  "35": {
+   "x": 0,
+   "y": 76,
+   "w": 24,
+   "h": 6
+  },
+  "36": {
+   "x": 0,
+   "y": 82,
+   "w": 24,
+   "h": 1
+  },
+  "37": {
+   "x": 0,
+   "y": 83,
+   "w": 12,
+   "h": 7
+  },
+  "38": {
+   "x": 12,
+   "y": 83,
+   "w": 12,
+   "h": 7
+  },
+  "39": {
+   "x": 0,
+   "y": 90,
+   "w": 24,
+   "h": 1
+  },
+  "40": {
+   "x": 0,
+   "y": 91,
+   "w": 12,
+   "h": 6
+  },
+  "41": {
+   "x": 12,
+   "y": 91,
+   "w": 12,
+   "h": 6
+  },
+  "42": {
+   "x": 0,
+   "y": 97,
+   "w": 12,
+   "h": 6
+  },
+  "43": {
+   "x": 12,
+   "y": 97,
+   "w": 12,
+   "h": 6
+  },
+  "44": {
+   "x": 0,
+   "y": 103,
+   "w": 24,
+   "h": 1
+  },
+  "45": {
+   "x": 0,
+   "y": 104,
+   "w": 12,
+   "h": 6
+  },
+  "46": {
+   "x": 12,
+   "y": 104,
+   "w": 12,
+   "h": 6
+  },
+  "47": {
+   "x": 0,
+   "y": 110,
+   "w": 24,
+   "h": 1
+  },
+  "48": {
+   "x": 0,
+   "y": 111,
+   "w": 12,
+   "h": 6
+  },
+  "49": {
+   "x": 12,
+   "y": 111,
+   "w": 6,
+   "h": 6
+  },
+  "50": {
+   "x": 18,
+   "y": 111,
+   "w": 6,
+   "h": 6
+  },
+  "51": {
+   "x": 0,
+   "y": 117,
+   "w": 12,
+   "h": 6
+  },
+  "52": {
+   "x": 12,
+   "y": 117,
+   "w": 12,
+   "h": 6
+  },
+  "53": {
+   "x": 0,
+   "y": 123,
+   "w": 24,
+   "h": 1
+  },
+  "54": {
+   "x": 0,
+   "y": 124,
+   "w": 6,
+   "h": 3
+  },
+  "55": {
+   "x": 6,
+   "y": 124,
+   "w": 6,
+   "h": 3
+  },
+  "56": {
+   "x": 12,
+   "y": 124,
+   "w": 6,
+   "h": 3
+  },
+  "57": {
+   "x": 18,
+   "y": 124,
+   "w": 6,
+   "h": 3
+  },
+  "58": {
+   "x": 0,
+   "y": 127,
+   "w": 12,
+   "h": 6
+  },
+  "59": {
+   "x": 12,
+   "y": 127,
+   "w": 6,
+   "h": 6
+  },
+  "60": {
+   "x": 18,
+   "y": 127,
+   "w": 6,
+   "h": 6
+  },
+  "61": {
+   "x": 0,
+   "y": 133,
+   "w": 12,
+   "h": 6
+  },
+  "62": {
+   "x": 12,
+   "y": 133,
+   "w": 12,
+   "h": 6
+  },
+  "63": {
+   "x": 0,
+   "y": 139,
+   "w": 24,
+   "h": 1
+  },
+  "64": {
+   "x": 0,
+   "y": 140,
+   "w": 8,
+   "h": 6
+  },
+  "65": {
+   "x": 8,
+   "y": 140,
+   "w": 8,
+   "h": 6
+  },
+  "66": {
+   "x": 16,
+   "y": 140,
+   "w": 8,
+   "h": 6
+  },
+  "67": {
+   "x": 0,
+   "y": 146,
+   "w": 12,
+   "h": 7
+  },
+  "68": {
+   "x": 12,
+   "y": 146,
+   "w": 12,
+   "h": 7
+  }
+ },
+ "settings": {
+  "defaultTimeframe": {
+   "value": {
+    "from": "now()-4h",
+    "to": "now()"
+   },
+   "enabled": true
+  }
+ },
+ "importedWithCode": false
+}
