@@ -38,7 +38,7 @@ Similarly to Bindplane, OpenPipeline uses [Processors](https://docs.dynatrace.co
 !!! info "Technology Bundles"
     Technology bundles normalize diverse log formats into consistent attributes aligned with the Semantic Dictionary, automatically extract key fields, and enable immediate DQL enrichment, searching, and alerting for faster troubleshooting, reliable analytics, and improved data quality.
 
-1. Choose a descriptive name for your Pipeline, like "Bindplane Lab"
+1. Choose a descriptive name for your Pipeline, like "`My name` Bindplane Lab"
 2. Expand the Processors drawer by clicking on the chevron
 3. Click the "+ Add" Button
 4. Choose "Technology Bundle"
@@ -71,7 +71,7 @@ Can you think of a field that we can use instead?  Maybe open a new browser tab 
 
 Switch the Matching Condition to a custom one, and use the following condition:
 ```
-matchesValue(log.file.name, "syslog")
+matchesValue(log.file.name, "syslog") and matchesValue(project, "`changethistoyourprojectname`")
 ```
 
 ![Matching Condition](img/6-parsing-with-openpipeline/3-matcher.png)

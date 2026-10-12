@@ -50,9 +50,9 @@ Click the **Pipelines** tab, then  select the pipeline you created earlier.
 
 ### 2. Add a Field Extraction processor
 
-Expand the **Processing** drawer and click **+ Add**, then select **Add fields**.
+Expand the **Processing** drawer and click **+ Add**, then select **DQL**.
 
-Give it a descriptive name: `Extract payment fields`.
+Give it a descriptive name: `Extract payment fields`
 
 **Matching condition** — scope this processor to "Transaction complete." logs only:
 
@@ -61,6 +61,8 @@ matchesValue(k8s.namespace.name, "astroshop") and matchesValue(k8s.container.nam
 ```
 
 The `content` field is a JSON string, so use a multi-step expression that parses it into a variant, extracts each field, then removes the intermediate variant to keep the record clean:
+
+Enter the following in the **DQL processor definition**
 
 ```
 parse content, "JSON:json_content"
@@ -78,7 +80,23 @@ parse content, "JSON:json_content"
 !!! tip "Test before saving"
     Paste a raw "Transaction complete." record into the sample input box and confirm all six fields appear in the output before saving.
 
-**Sample log** — paste one of the raw payment records into the sample input box. Run the preview and confirm the five fields appear in the output before saving.
+**Sample log** — paste one of the raw payment records into the sample input box. Run the preview and confirm the five fields appear in the output before saving. See DQL reference below to see the DQL command
+
+To get a raw sample data:
+
+1. Run a query like below in a Dynatrace Notebook:
+
+```
+fetch logs
+| filter matchesValue(k8s.namespace.name, "astroshop") and matchesValue(k8s.container.name, "payment") and matchesPhrase(content, "Transaction complete.")
+| limit  1
+```
+2. Click on  **Options**, select **Raw response**
+4. Copy contents inside "records":[] exclude the square brackets
+5. Paste the JSON {} contents into the Sample Data section in OpenPipeline
+6. Click **Run Sample data** and verify that the results show the parsed value
+
+If you are happy that you can see the parsed values i.e. app.payment.*, save the config:
 
 Click **Save**.
 
